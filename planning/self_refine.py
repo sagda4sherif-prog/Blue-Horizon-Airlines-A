@@ -2,7 +2,7 @@ from copy import deepcopy
 
 
 class SelfRefiner:
-    def __init__(self, validator=None, max_iterations=3):
+    def __init__(self, validator, max_iterations=3):
         self.validator = validator
         self.max_iterations = max_iterations
 
@@ -10,53 +10,43 @@ class SelfRefiner:
         current_plan = deepcopy(plan)
         history = []
 
-        for iteration in range(self.max_iterations):
-            feedback = self._validate(current_plan)
+        for iteration in range(1, self.max_iterations + 1):
+            validation = self._validate(current_plan)
 
-            history.append(
-                {
-                    "iteration": iteration + 1,
-                    "plan": deepcopy(current_plan),
-                    "feedback": feedback,
+            history.append({
+                "iteration": iteration,
+                "plan": deepcopy(current_plan),
+                "validation": deepcopy(validation),
+            })
+
+            if validation["valid"]:
+                return {
+                    "success": True,
+                    "plan": current_plan,
+                    "iterations": iteration,
+                    "history": history,
                 }
+
+            revised_plan = self._revise(
+                current_plan,
+                validation.get("errors", [])
             )
 
-            if feedback["valid"]:
-                return {
-                    "plan": current_plan,
-                    "valid": True,
-                    "iterations": iteration + 1,
-                    "history": history,
-                }
-
-            revised_plan = self._revise(current_plan, feedback)
-
             if revised_plan == current_plan:
-                return {
-                    "plan": current_plan,
-                    "valid": False,
-                    "iterations": iteration + 1,
-                    "history": history,
-                }
+                break
 
             current_plan = revised_plan
 
-        final_feedback = self._validate(current_plan)
+        final_validation = self._validate(current_plan)
 
         return {
+            "success": final_validation["valid"],
             "plan": current_plan,
-            "valid": final_feedback["valid"],
-            "iterations": self.max_iterations,
+            "iterations": len(history),
             "history": history,
         }
 
     def _validate(self, plan):
-        if self.validator is None:
-            return {
-                "valid": True,
-                "errors": [],
-            }
-
         result = self.validator(plan)
 
         if isinstance(result, bool):
@@ -65,35 +55,35 @@ class SelfRefiner:
                 "errors": [] if result else ["Plan validation failed"],
             }
 
-        if isinstance(result, dict):
+        if not isinstance(result, dict):
             return {
-                "valid": result.get("valid", False),
-                "errors": result.get("errors", []),
+                "valid": bool(result),
+                "errors": [] if result else ["Plan validation failed"],
             }
 
         return {
-            "valid": bool(result),
-            "errors": [] if result else ["Plan validation failed"],
+            "valid": bool(result.get("valid", False)),
+            "errors": result.get("errors", []),
         }
 
-    def _revise(self, plan, feedback):
-        revised_plan = deepcopy(plan)
-        errors = feedback.get("errors", [])
+    def _revise(self, plan, errors):
+        revised = deepcopy(plan)
 
-        if isinstance(revised_plan, dict):
-            revised_plan["validation_errors"] = errors
+        if isinstance(revised, dict):
+            revised.setdefault("corrections", [])
+            revised["corrections"].extend(errors)
 
-        elif isinstance(revised_plan, list):
-            revised_plan = [
-                task
-                for task in revised_plan
-                if task not in errors
+        elif isinstance(revised, list):
+            revised = [
+                task for task in revised
+                if task.get("id") not in errors
+                if isinstance(task, dict)
             ]
 
-        return revised_plan
+        return revised
 
 
-def self_refine(plan, validator=None, max_iterations=3):
+def self_refine(plan, validator, max_iterations=3):
     refiner = SelfRefiner(
         validator=validator,
         max_iterations=max_iterations,
