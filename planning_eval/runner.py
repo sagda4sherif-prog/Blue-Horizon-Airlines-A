@@ -1,122 +1,56 @@
+# planning_eval/runner.py
 import json
 import os
+import logging
 
-from .scenarios import SCENARIOS
-from .metrics import EvaluationMetrics
-
+logger = logging.getLogger("EvaluationRunner")
 
 class EvaluationRunner:
-    def __init__(
-        self,
-        planner,
-        self_refiner=None,
-        reflexion_agent=None,
-        output_path="artifacts/planning_results.json",
-    ):
-        self.planner = planner
-        self.self_refiner = self_refiner
-        self.reflexion_agent = reflexion_agent
-        self.output_path = output_path
-        self.metrics = EvaluationMetrics()
+    """
+    Runs planning evaluation scenarios, collects performance metrics, 
+    and saves results directly to artifacts/planning_results.json.
+    """
+    def __init__(self, results_path: str = "artifacts/planning_results.json"):
+        self.results_path = results_path
+        self._ensure_artifacts_dir()
 
-    def run(self):
-        raw_results = []
+    def _ensure_artifacts_dir(self):
+        """Ensure the artifacts directory exists."""
+        directory = os.path.dirname(self.results_path)
+        if directory and not os.path.exists(directory):
+            os.makedirs(directory)
 
-        for scenario in SCENARIOS:
-            request = scenario["request"]
+    def save_results(self, evaluation_data: dict):
+        """Save planning and evaluation results to the JSON artifact file."""
+        try:
+            with open(self.results_path, "w", encoding="utf-8") as f:
+                json.dump(evaluation_data, f, indent=4, ensure_ascii=False)
+            logger.info(f"Evaluation results successfully saved to {self.results_path}")
+        except Exception as e:
+            logger.error(f"Failed to save evaluation results: {e}")
 
-            self._run_method(
-                scenario,
-                "planner",
-                lambda: self.planner(request),
-                raw_results,
-            )
-
-            if self.self_refiner is not None:
-                self._run_method(
-                    scenario,
-                    "self_refine",
-                    lambda: self._run_self_refine(request),
-                    raw_results,
-                )
-
-            if self.reflexion_agent is not None:
-                self._run_method(
-                    scenario,
-                    "reflexion",
-                    lambda: self.reflexion_agent.run(request),
-                    raw_results,
-                )
-
-        output = {
-            "scenarios": raw_results,
-            "summary": self.metrics.summary(),
+    def run_evaluation(self, scenarios: list, planner_router) -> dict:
+        """Run evaluation across scenarios and persist results."""
+        results = {
+            "total_scenarios": len(scenarios),
+            "scenarios_passed": 0,
+            "details": []
         }
 
-        os.makedirs(
-            os.path.dirname(self.output_path),
-            exist_ok=True,
-        )
+        for idx, scenario in enumerate(scenarios, start=1):
+            logger.info(f"Running scenario {idx}: {scenario.get('name', 'Unnamed')}")
+            # Execute planning and routing logic
+            outcome = planner_router.run(scenario.get("request", ""))
+            
+            results["details"].append({
+                "scenario_id": idx,
+                "scenario_name": scenario.get("name"),
+                "outcome": outcome
+            })
+            
+            if outcome.get("feedback", {}).get("valid", False):
+                results["scenarios_passed"] += 1
 
-        with open(
-            self.output_path,
-            "w",
-            encoding="utf-8",
-        ) as file:
-            json.dump(
-                output,
-                file,
-                indent=2,
-                ensure_ascii=False,
-            )
-
-        return output
-
-    def _run_self_refine(self, request):
-        plan = self.planner(request)
-        return self.self_refiner.refine(plan)
-
-    def _run_method(
-        self,
-        scenario,
-        method,
-        function,
-        raw_results,
-    ):
-        result, latency = self.metrics.measure(function)
-
-        success = bool(
-            result.get("success", False)
-            if isinstance(result, dict)
-            else result
-        )
-
-        trials = 1
-
-        if isinstance(result, dict):
-            trials = result.get(
-                "iterations",
-                result.get("trials", 1),
-            )
-
-        tokens = (
-            result.get("tokens", 0)
-            if isinstance(result, dict)
-            else 0
-        )
-
-        self.metrics.add_result(
-            scenario_id=scenario["id"],
-            method=method,
-            success=success,
-            latency_ms=latency,
-            trials=trials,
-            tokens=tokens,
-        )
-
-        raw_results.append({
-            "scenario_id": scenario["id"],
-            "method": method,
-            "result": result,
-            "latency_ms": latency,
-        })
+        # Persist results to artifacts/planning_results.json
+        self.save_results(results)
+        return results
