@@ -1,66 +1,52 @@
+# planning_eval/metrics.py
 import time
+import logging
+from typing import Dict, Any, Callable
 
+logger = logging.getLogger("EvaluationMetrics")
 
-class EvaluationMetrics:
+class MetricsTracker:
+    """
+    Tracks operational execution metrics including planning latency, 
+    execution latency, total latency, token usage, and trial counts 
+    for PS, ToT, and LATS planners.
+    """
     def __init__(self):
-        self.results = []
+        self.metrics = {
+            "planning_latency_ms": 0.0,
+            "execution_latency_ms": 0.0,
+            "total_latency_ms": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "trials": 1,
+            "success": False
+        }
 
-    def add_result(
-        self,
-        scenario_id,
-        method,
-        success,
-        latency_ms,
-        trials=1,
-        tokens=0,
-    ):
-        self.results.append({
-            "scenario_id": scenario_id,
-            "method": method,
-            "success": bool(success),
-            "latency_ms": latency_ms,
-            "trials": trials,
-            "tokens": tokens,
-        })
+    def measure_execution(self, planner_func: Callable[[], Any], executor_func: Callable[[Any], Any]) -> Dict[str, Any]:
+        """Measure planning and execution performance metrics end-to-end."""
+        # 1. Measure planning phase latency and token usage
+        start_time = time.time()
+        plan_result = planner_func()
+        planning_time = (time.time() - start_time) * 1000.0
 
-    def summary(self):
-        if not self.results:
-            return {}
+        if isinstance(plan_result, dict):
+            self.metrics["input_tokens"] = plan_result.get("input_tokens", 0)
+            self.metrics["output_tokens"] = plan_result.get("output_tokens", 0)
+            self.metrics["total_tokens"] = self.metrics["input_tokens"] + self.metrics["output_tokens"]
 
-        methods = sorted({
-            result["method"]
-            for result in self.results
-        })
+        self.metrics["planning_latency_ms"] = round(planning_time, 2)
 
-        summary = {}
+        # 2. Measure execution and validation phase latency
+        start_exec = time.time()
+        exec_result = executor_func(plan_result)
+        exec_time = (time.time() - start_exec) * 1000.0
 
-        for method in methods:
-            rows = [
-                result
-                for result in self.results
-                if result["method"] == method
-            ]
+        self.metrics["execution_latency_ms"] = round(exec_time, 2)
+        self.metrics["total_latency_ms"] = round(planning_time + exec_time, 2)
+        
+        if isinstance(exec_result, dict):
+            self.metrics["success"] = exec_result.get("valid", exec_result.get("success", False))
 
-            summary[method] = {
-                "success_rate": (
-                    sum(r["success"] for r in rows) / len(rows)
-                ),
-                "average_latency_ms": (
-                    sum(r["latency_ms"] for r in rows) / len(rows)
-                ),
-                "average_trials": (
-                    sum(r["trials"] for r in rows) / len(rows)
-                ),
-                "average_tokens": (
-                    sum(r["tokens"] for r in rows) / len(rows)
-                ),
-            }
-
-        return summary
-
-    def measure(self, function):
-        start = time.perf_counter()
-        result = function()
-        elapsed = (time.perf_counter() - start) * 1000
-
-        return result, elapsed
+        logger.info(f"Metrics Recorded -> Total Latency: {self.metrics['total_latency_ms']}ms, Success: {self.metrics['success']}")
+        return self.metrics
