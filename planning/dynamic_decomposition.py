@@ -1,78 +1,42 @@
-# planning/dynamic_decomposition.py
-import networkx as nx
-import logging
-from typing import Dict, Any, List, Optional
+from langchain_core.language_models.chat_models import BaseChatModel
+from pydantic import BaseModel, ConfigDict
 
-logger = logging.getLogger("DynamicDAGManager")
 
-class DynamicTaskDecompositionGraph:
-    """
-    Dynamic DAG manager that handles task decomposition, 
-    failure handling, and rerouting while enforcing acyclicity.
-    """
-    def __init__(self):
-        self.dag = nx.DiGraph()
+class DynamicDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    def add_task(self, task_id: str, description: str, dependencies: List[str] = None):
-        """Add a dynamic task ensuring acyclicity and status tracking"""
-        dependencies = dependencies or []
-        
-        test_graph = self.dag.copy()
-        if not test_graph.has_node(task_id):
-            test_graph.add_node(task_id, description=description, status="pending")
-            
-        for dep in dependencies:
-            test_graph.add_edge(dep, task_id)
-        
-        if not nx.is_directed_acyclic_graph(test_graph):
-            raise ValueError(f"Error: Adding task '{task_id}' creates a cycle in the dynamic DAG!")
-        
-        self.dag = test_graph
-        logger.info(f"Task '{task_id}' added successfully. Acyclicity verified.")
+    done: bool
+    next_task: str
 
-    def update_task_status(self, task_id: str, status: str):
-        """Update task status ('pending', 'completed', 'failed')"""
-        if self.dag.has_node(task_id):
-            self.dag.nodes[task_id]['status'] = status
 
-    def get_next_executable_tasks(self) -> List[str]:
-        """Return list of pending tasks whose dependencies are completed"""
-        executable = []
-        for node in self.dag.nodes:
-            if self.dag.nodes[node]['status'] == "pending":
-                predecessors = list(self.dag.predecessors(node))
-                if all(self.dag.nodes[p]['status'] == "completed" for p in predecessors):
-                    executable.append(node)
-        return executable
+def dynamic_decomposition(goal: str, llm: BaseChatModel, max_steps: int = 4) -> list[tuple[str, str]]:
+    history: list[tuple[str, str]] = []
+    for step in range(max_steps):
+        observation = "\n".join(f"{task}: {result}" for task, result in history) or "None"
+        decision = llm.with_structured_output(
+            DynamicDecision,
+            method="json_schema",
+        ).invoke([
+            ("system", "You are an adaptive planner. Use prior observations before deciding what comes next."),
+            ("human", f"""Goal: {goal}
+Completed work and observations:
+{observation}
 
-    def handle_failure(self, failed_task_id: str, reason: str) -> Optional[str]:
-        """
-        Handle task failure, update its status, and dynamically generate a fallback branch.
-        """
-        if failed_task_id not in self.dag:
-            logger.error(f"Task '{failed_task_id}' not found in DAG.")
-            return None
-
-        self.update_task_status(failed_task_id, "failed")
-        self.dag.nodes[failed_task_id]["error_reason"] = reason
-        logger.warning(f"Task '{failed_task_id}' failed due to: {reason}. Triggering dynamic fallback...")
-
-        fallback_task_id = f"fallback_{failed_task_id}"
-        
-        if "seat unavailable" in reason.lower() or "premium" in reason.lower() or "capacity" in reason.lower():
-            fallback_desc = "Automatically switch to standard seat booking branch"
-        else:
-            fallback_desc = f"Execute alternative fallback routing for reason: {reason}"
-
-        try:
-            predecessors = list(self.dag.predecessors(failed_task_id))
-            self.add_task(
-                task_id=fallback_task_id,
-                description=fallback_desc,
-                dependencies=predecessors if predecessors else []
-            )
-            logger.info(f"Fallback task '{fallback_task_id}' successfully created and injected into DAG.")
-            return fallback_task_id
-        except Exception as e:
-            logger.critical(f"Failed to generate dynamic fallback: {str(e)}")
-            return None
+Decide the single best next task. Set done to true only when the goal is met.
+When done is true, use an empty string for next_task."""),
+        ], temperature=0.1)
+        if decision.done:
+            break
+        task = decision.next_task.strip()
+        if not task:
+            raise ValueError(f"Dynamic planner omitted next_task at step {step + 1}")
+        response = llm.invoke([
+            ("system", "Execute the next adaptive sub-task using the observations provided."),
+            ("human", f"Goal: {goal}\nNext task: {task}\nPrior observations:\n{observation}"),
+        ], temperature=0.2)
+        result = response.content
+        if not isinstance(result, str) or not result.strip():
+            raise RuntimeError("The chat model returned an empty or unsupported response")
+        result = result.strip()
+        history.append((task, result))
+    return history
