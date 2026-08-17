@@ -1,12 +1,20 @@
+# planning/self_refine.py
 from copy import deepcopy
+import logging
 
+logger = logging.getLogger("SelfRefiner")
 
 class SelfRefiner:
+    """
+    Self-refine planner that iteratively reviews and corrects operational plans
+    based on environment feedback, protected by max iteration limits.
+    """
     def __init__(self, validator, max_iterations=3):
         self.validator = validator
         self.max_iterations = max_iterations
 
     def refine(self, plan):
+        """Iteratively refine the plan until it passes validation or hits max iterations."""
         current_plan = deepcopy(plan)
         history = []
 
@@ -18,6 +26,8 @@ class SelfRefiner:
                 "plan": deepcopy(current_plan),
                 "validation": deepcopy(validation),
             })
+
+            logger.info(f"Self-Refine Iteration {iteration}: Valid={validation['valid']}")
 
             if validation["valid"]:
                 return {
@@ -33,6 +43,7 @@ class SelfRefiner:
             )
 
             if revised_plan == current_plan:
+                logger.warning("Self-Refine stalled: No changes made in revised plan.")
                 break
 
             current_plan = revised_plan
@@ -47,6 +58,7 @@ class SelfRefiner:
         }
 
     def _validate(self, plan):
+        """Validate the current plan using the provided validator function."""
         result = self.validator(plan)
 
         if isinstance(result, bool):
@@ -63,10 +75,11 @@ class SelfRefiner:
 
         return {
             "valid": bool(result.get("valid", False)),
-            "errors": result.get("errors", []),
+            "errors": result.get("reasons", result.get("errors", [])),
         }
 
     def _revise(self, plan, errors):
+        """Revise the plan based on validation errors."""
         revised = deepcopy(plan)
 
         if isinstance(revised, dict):
@@ -76,14 +89,13 @@ class SelfRefiner:
         elif isinstance(revised, list):
             revised = [
                 task for task in revised
-                if task.get("id") not in errors
-                if isinstance(task, dict)
+                if isinstance(task, dict) and task.get("id") not in errors
             ]
 
         return revised
 
-
 def self_refine(plan, validator, max_iterations=3):
+    """Helper function to execute self-refining loop."""
     refiner = SelfRefiner(
         validator=validator,
         max_iterations=max_iterations,
