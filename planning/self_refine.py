@@ -9,9 +9,18 @@ class SelfRefiner:
     Self-refine planner that iteratively reviews and corrects operational plans
     based on environment feedback, protected by max iteration limits.
     """
-    def __init__(self, validator, max_iterations=3):
+    def __init__(self, validator, max_iterations=3, reviser=None):
         self.validator = validator
         self.max_iterations = max_iterations
+        # Bug fix (see README Bug Fix Log): the built-in `_revise` below
+        # only ever mutates dict- or list-shaped plans; a string plan (the
+        # common shape for "cheap to redo" text output, e.g. a drafted
+        # notification) fell through to a bare `deepcopy(plan)` with no
+        # actual edit, so the loop always stalled after one iteration
+        # regardless of `max_iterations`. `reviser(plan, errors) -> plan`
+        # lets a caller supply a real revision step for any plan shape;
+        # when omitted, behavior for dict/list plans is unchanged.
+        self.reviser = reviser
 
     def refine(self, plan):
         """Iteratively refine the plan until it passes validation or hits max iterations."""
@@ -80,6 +89,9 @@ class SelfRefiner:
 
     def _revise(self, plan, errors):
         """Revise the plan based on validation errors."""
+        if self.reviser is not None:
+            return self.reviser(deepcopy(plan), errors)
+
         revised = deepcopy(plan)
 
         if isinstance(revised, dict):

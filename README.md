@@ -450,9 +450,210 @@ Blue-Horizon-Airlines-A/
 ├── memory/                # short-term, scratchpad, episodic, semantic, router, consolidation
 ├── rag/                   # rag_pipeline.py, rag_data/operational_policies.txt, vector_db/
 ├── evaluation/            # context_evaluation.py, eval.py — produce the tables above
-├── tests/                 # test_memory.py, test_context.py, test_client.py
+├── planning/              # decomposition, dynamic_decomposition, plan_and_solve,
+│                          # tree_of_thoughts, lats, self_refine, environment, routing, models
+├── planning_eval/         # scenarios.py, runner.py, adapter.py, metrics.py
+├── reflexion.py           # ReflexionAgent + EpisodicBuffer (repo root, matches toolkit layout)
+├── artifacts/             # planning_results.json — JSON trace per planning_eval run
+├── tests/                 # test_memory.py, test_context.py, test_client.py,
+│                          # test_environment.py, test_scheduling_agent*.py,
+│                          # test_self_refine.py, test_reflexion.py, test_planning_*.py
 └── README.md
 ```
+
+---
+
+# Decomposition & Planning Lab
+
+This section extends the same server, database, and repo above. It is not
+a new project — `mcp_server/` and `db/` are untouched by this lab. It also
+does not touch the Memory & RAG agent's code path: `memory/` and `rag/`
+are unmodified, and this lab's new code lives in `planning/`,
+`planning_eval/`, `reflexion.py`, and a new `SchedulingAgent` in
+`agent/scheduling_agent.py`, sitting next to (not inside) `agent/client.py`.
+
+## The Planning Problem
+
+Flight Operations Control already gets real-time reads and controlled
+writes from the MCP Server Lab, and remembers what happened across a shift
+from the Memory & RAG Lab. Neither of those solves what actually happens
+twice a week: a crew member calls in sick or an aircraft comes up for
+unscheduled maintenance mid-shift, and a controller has to pick a
+replacement aircraft and/or backup crew member by hand — cross-referencing
+aircraft status, open maintenance severity, and crew duty hours across
+separate screens, then re-checking by phone if the first pick turns out to
+be unusable.
+
+Getting this wrong costs something real: reassigning a flight to an
+aircraft that's mid-**High**-severity maintenance, or a crew member
+already at the legal 8-hour duty ceiling, is exactly the kind of mistake
+`mcp_server/tools.py::assign_backup_crew` and `assign_aircraft` already
+guard against at write time — but by the time a proposed reassignment
+reaches those tools, the wrong pick has already cost a phone call and a
+re-plan. That's a real branching problem (several valid aircraft/crew
+combinations may exist, and the first one considered often isn't
+available), a real cost to a wrong plan, and a real difference between
+committing to one plan and adjusting after an early failure (the first
+candidate aircraft turns out to be under maintenance, which changes what
+should be tried next) — the shape the assignment asks this lab's problem
+to have.
+
+The **Scheduling Agent** (`agent/scheduling_agent.py`) owns this, separate
+from the Memory & RAG agent.
+
+## How Each Concern Shows Up
+
+| Concern | File | What it actually does |
+|---|---|---|
+| DAG construction + acyclicity | `planning/models.py` (`Plan.validate_dag`) | Cycles, unknown dependency ids, and self-dependencies are rejected at Pydantic validation time — a plan that could deadlock never becomes a `Plan` object in the first place, not a runtime edge case. |
+| Decomposition-first | `planning/decomposition.py` (`decompose_goal`, `execute_plan`) | The whole DAG is generated in one LLM call up front, then executed in topological batches (`Plan.execution_batches()`), with independent branches submitted to a thread pool concurrently. |
+| Dynamic / interleaved decomposition | `planning/dynamic_decomposition.py` | The next sub-task is generated only after observing every prior task's result; an early surprise reshapes what's tried next instead of blindly executing a stale plan. |
+| Divergence demo | `agent/scheduling_agent.py::run_disrupted_flight_workflow` | A static plan commits to a premium-seat booking; when the operational tool reports the seat is actually unavailable, a fresh fallback DAG is built and executed instead of pushing ahead with the stale plan — the concrete case decomposition-first would have executed anyway and dynamic decomposition reacts to. |
+| Planning routing (PS / ToT / LATS) | `planning/routing.py` (`PlanningRouter`) | Routes a sub-task by shape: mechanical → Plan-and-Solve, several plausible orderings worth comparing (e.g. ranking disrupted flights by urgency) → Tree of Thoughts, an actual aircraft/crew commitment → grounded LATS. |
+| Plan-and-Solve | `planning/plan_and_solve.py` | Single explicit plan phase, then execute — no branching, cheapest option, used where a wrong pick is nearly free to fix. |
+| Tree of Thoughts | `planning/tree_of_thoughts.py` | Generates 2 candidates per frontier node, scores each independently, keeps the best `beam_width` — used for the "rank by urgency" sub-task, where several valid orderings exist and re-sorting is cheap. |
+| LATS | `planning/lats.py` | UCT-guided selection over a real tree, environment feedback blended with the model's own value estimate (`0.75 * environment_score + 0.25 * model_score`), and a verbal reflection recorded on every failed branch and carried into the next expansion — used for the sub-task that actually commits an aircraft or crew member. |
+| Grounded environment | `planning/environment.py` (`GroundedEnvironment`) | Replaces the toolkit's `random.betavariate()` stub. Parses aircraft/crew/flight ids out of a candidate and checks them against the **real** `db/blue_horizon.db`: aircraft status, open High/Critical maintenance holds, aircraft double-booking overlaps, crew availability, and the same 8-hour duty ceiling `assign_backup_crew` enforces at write time. `RandomEnvironment` (same file) is kept only as the ungrounded control for the comparison table below — nothing shipped points at it. |
+| Self-Refine | `planning/self_refine.py` (`SelfRefiner`), used via `SchedulingAgent.refine_notification` | One draft, one grounded critique (does the notification actually state every legally/operationally required fact — flight number, new time, reassigned resource — via real string-containment against the requirement list, not an LLM asked "does this look good?"), one revision. Used for the cheap-to-redo sub-task: drafting the passenger/crew notification once a reassignment decision is already made. |
+| Reflexion | `reflexion.py` (`ReflexionAgent`), used via `SchedulingAgent.run_reflexion_reassignment` | Retries the entire reassignment across trials, carrying a capped episodic buffer of which candidates already failed and why into the next attempt. Used for the sub-task type a single retry genuinely isn't enough for — see the worked case below. |
+
+## A Real Case Where a Single Retry Isn't Enough
+
+`SchedulingAgent.run_reflexion_reassignment` against the seeded database:
+Aircraft 3 is mid-**High**-severity maintenance; Crew 4 is unavailable.
+Four candidates are proposed in order, and it takes all four trials —
+two different real constraints fail before the last candidate clears
+both:
+
+| Trial | Candidate | Grounded result |
+|---|---|---|
+| 1 | Aircraft 3 + Crew 4 | fails — aircraft blocked by maintenance |
+| 2 | Aircraft 3 + Crew 1 | fails — aircraft still blocked by maintenance |
+| 3 | Aircraft 1 + Crew 4 | fails — crew unavailable |
+| 4 | Aircraft 1 + Crew 1 | **succeeds** |
+
+Self-Refine's single-revision loop can't express this: `SelfRefiner._revise`
+edits *one* candidate's text, but the whole candidate here needs replacing,
+not editing. Reflexion's episodic buffer is what carries "Aircraft 3 is a
+dead end" forward so trial 2 doesn't have to relearn it. See
+`tests/test_scheduling_agent_planning.py::test_reflexion_reassignment_needs_more_than_one_retry`.
+
+## Grounded vs. Ungrounded, Shown Failing
+
+`tests/test_environment.py::test_grounded_catches_what_ungrounded_default_would_miss`
+runs the same candidate — "Reassign Flight 3 to Aircraft 3 with backup
+Crew 4" — through both evaluators. `GroundedEnvironment` rejects it every
+time (both the aircraft and the crew member fail a real check). The
+toolkit's original `RandomEnvironment` ignores the candidate's contents
+entirely and, across 50 seeds, passes it purely by chance on some of them
+— confirming an ungrounded LATS/Reflexion here isn't just weaker, it's
+disconnected from whether the candidate is actually usable.
+
+## Cost and Quality Comparison
+
+**Not filled in yet.** Every method above is implemented and unit-tested
+against the grounded, LLM-free path (`tests/test_environment.py`,
+`tests/test_scheduling_agent_planning.py`), but the full comparison table
+— decomposition-first vs. dynamic, PS vs. ToT vs. LATS, Self-Refine vs.
+Reflexion, each scored on accuracy/task success, LLM calls, tokens, and
+latency across a fixed real-request test suite — requires a live
+`GEMINI_API_KEY` and network access neither of which this environment has
+available. `planning_eval/scenarios.py` already defines four fixed
+scenarios with `expected_strategy` labels for exactly this; wire a real
+`langchain_google_genai` chat model into `PlanningRouter` and
+`planning_eval/runner.py::EvaluationRunner` and run:
+
+```bash
+python -m planning_eval.runner
+```
+
+Paste the resulting `artifacts/planning_results.json` summary here before
+submitting, in this shape:
+
+| Method | Task success | Avg. LLM calls | Avg. tokens | Avg. latency | Est. cost/run |
+|---|---|---|---|---|---|
+| Decomposition-first | | | | | |
+| Dynamic decomposition | | | | | |
+| Plan-and-Solve | | | | | |
+| Tree of Thoughts | | | | | |
+| LATS, ungrounded (`RandomEnvironment`) | | | | | |
+| LATS, grounded (`GroundedEnvironment`) | | | | | |
+| Self-Refine | | | | | |
+| Reflexion | | | | | |
+
+## Test Cases (Prompts) Demonstrating Each Concern
+
+- *Mechanical, low branching (routes to Plan-and-Solve):* "Draft the
+  standard delay-notification text for flight BH218's passengers."
+- *Real branching, cheap to re-sort (routes to Tree of Thoughts):*
+  "Rank today's three disrupted flights by urgency for reassignment."
+- *Real commitment, expensive if wrong (routes to grounded LATS):*
+  "Reassign flight BH218 to a different aircraft and backup crew member
+  after the current aircraft went into maintenance."
+- *Decomposition-first vs. dynamic divergence:* "Resolve disrupted flight
+  FL-100: book the affected passenger into a premium seat, or the next
+  best option if premium is unavailable." (see
+  `run_disrupted_flight_workflow`)
+- *Needs Reflexion's cross-trial memory, not a single retry:* "Find a
+  valid aircraft + backup crew reassignment for flight BH218 given that
+  Aircraft 3 and Crew 4 are both currently invalid." (see
+  `run_reflexion_reassignment`)
+- *Self-Refine, cheap-to-redo sub-task:* "Revise this passenger
+  notification until it states the new flight number and departure time."
+  (see `refine_notification`)
+
+## Setup & Run Instructions (Planning Lab)
+
+```bash
+pip install -r requirements.txt   # now includes pydantic, networkx, langchain — see Bug Fix Log
+
+# Grounded, LLM-free tests — no API key or network required:
+pytest tests/test_environment.py -v
+pytest tests/test_scheduling_agent_planning.py -v
+pytest tests/test_scheduling_agent.py -v
+pytest tests/test_self_refine.py tests/test_reflexion.py tests/test_planning_integration.py -v
+
+# Full LLM-backed comparison table (requires GEMINI_API_KEY + network):
+python -m planning_eval.runner
+```
+
+## Bug Fix Log (Planning Lab)
+
+- **`planning/environment.py` was never grounded.** `Environment.evaluate()`
+  was `random.betavariate()` — it ignored the candidate entirely, exactly
+  the "ungrounded LATS is expensive theater" failure mode the assignment
+  warns about. Replaced with `GroundedEnvironment`, which checks real
+  aircraft/crew constraints against `db/blue_horizon.db`; the old
+  evaluator is kept as `RandomEnvironment`, the explicit ungrounded
+  control for the comparison table.
+- **`planning/routing.py` imported classes that don't exist** —
+  `PlanAndSolvePlanner`, `TreeOfThoughtsPlanner`, `LATSPlanner` were never
+  defined anywhere in `planning/`; `plan_and_solve.py`, `tree_of_thoughts.py`,
+  and `lats.py` only ever exported functions. The module could not be
+  imported, and nothing else in the repo imported it, so this had never
+  surfaced. Rewritten to call the real functions.
+- **`planning/self_refine.py`'s `_revise` silently no-ops on a string
+  plan** — it only mutates dict- or list-shaped plans; a text draft (the
+  natural shape for the "cheap to redo" Self-Refine sub-task) fell
+  through to a bare `deepcopy` with no actual edit, so refinement always
+  stalled after one iteration regardless of `max_iterations`. Added an
+  optional `reviser` callable so a caller can supply a real revision step
+  for any plan shape; dict/list behavior is unchanged when omitted.
+- **`requirements.txt` listed 3 packages; the code imports from 12+** —
+  `pydantic`, `networkx`, `langchain_core`, `langchain_google_genai`,
+  `langchain_community`, `langchain_text_splitters`, `langchain_chroma`,
+  `langchain_huggingface`, `rank_bm25`, and `pytest` were all used
+  throughout `planning/`, `rag/`, and `tests/` but absent from
+  `requirements.txt`, so a clean `pip install -r requirements.txt` (the
+  README's own step 1) never actually installed enough to run the repo.
+- **`agent/scheduling_agent.py` never used `planning/`.** The original
+  `SchedulingAgent` demonstrated the decomposition-first/dynamic
+  divergence with two hand-built `Plan` objects but never called
+  `routing.py`, `self_refine.py`, or `reflexion.py` — the planning-
+  algorithm and self-correction concerns existed in `planning/` but
+  weren't reachable from the agent. Added `evaluate_candidate`,
+  `run_reflexion_reassignment`, `refine_notification`, and
+  `route_subtask` to close that gap.
 
 ## Bug Fix Log
 
@@ -488,4 +689,16 @@ found and fixed after the initial memory/RAG implementation:
 | Person 1 | `db/` — schema, seed data, connection wiring, CRUD/query fixes | `memory/` — short-term memory, scratchpad, promote-or-drop router, episodic memory, semantic memory, consolidation layer, conflict resolution, versioning, expiration |
 | Person 2 | `mcp_server/` — tools, validation, error handling, capability negotiation | `evaluation/context_evaluation.py`, `agent/context_manager.py` — all four context strategies, long-context test suite, accuracy/token/latency comparison table |
 | Person 3 | `agent/` — client/server connection, run instructions, integration fixes | `rag/` — chunking, embeddings, vector store, naive/hybrid/agentic RAG, Self-RAG verification, `evaluation/eval.py`; final integration of `memory/` and `rag/` into the live agent loop, end-to-end demo |
+
+**Decomposition & Planning Lab ownership — fill in per your team before
+submitting** (issue rationale and linked PRs are graded per-concern, not
+per-file, so this should map to actual commits, not just this table):
+
+| Owner | Concern |
+|---|---|
+| | `planning/decomposition.py`, `planning/dynamic_decomposition.py`, `planning/models.py` (DAG + both decomposition methods) |
+| | `planning/plan_and_solve.py`, `planning/tree_of_thoughts.py`, `planning/lats.py`, `planning/routing.py` (three planning algorithms + routing) |
+| | `planning/self_refine.py`, `reflexion.py`, `planning/environment.py` (self-correction, both scopes + grounded environment) |
+| | `planning_eval/`, `artifacts/planning_results.json`, the comparison table (evaluation harness) |
+| | `agent/scheduling_agent.py`, integration into the live agent loop, demo transcript |
 

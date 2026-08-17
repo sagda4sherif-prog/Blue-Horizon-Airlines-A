@@ -1,9 +1,16 @@
 # agent/scheduling_agent.py
 import logging
 import os
+import sys
 import sqlite3
+from pathlib import Path
 
 from planning.models import Plan, Task
+from planning.environment import GroundedEnvironment
+from planning.self_refine import SelfRefiner
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from reflexion import ReflexionAgent  # repo-root module; see planning/__init__.py docstring
 
 logger = logging.getLogger("SchedulingAgent")
 
@@ -62,9 +69,14 @@ class SchedulingAgent:
     creates a fallback plan when an operational action fails.
     """
 
-    def __init__(self, mcp_client=None):
+    def __init__(self, mcp_client=None, environment=None):
         self.mcp_client = mcp_client
         self.db_manager = DatabaseManager()
+        # Grounded EnvironmentFeedback source: real DB checks, not a model's
+        # opinion of itself. Used directly (LLM-free) by
+        # `run_reflexion_reassignment` below, and by `route_subtask` when a
+        # real LLM is supplied for LATS.
+        self.environment = environment or GroundedEnvironment()
 
     def execute_tool(self, tool_name: str, arguments: dict) -> dict:
         """
@@ -178,6 +190,118 @@ class SchedulingAgent:
                 "Low operational risk after dynamic fallback task execution."
             ),
         )
+
+    # ---------------------------------------------------------------
+    # Grounded self-correction: routing, Reflexion, Self-Refine
+    # ---------------------------------------------------------------
+
+    def route_subtask(self, request: str, llm=None) -> dict:
+        """Route a sub-task to Plan-and-Solve / Tree of Thoughts / grounded
+        LATS via `planning.routing.PlanningRouter`.
+
+        Imported lazily because `PlanningRouter` (and `plan_and_solve`,
+        `tree_of_thoughts`, `lats`) depend on `langchain_core`, which not
+        every deployment of this agent needs installed just to run the
+        LLM-free grounded-Reflexion path below. Requires a real
+        `BaseChatModel` — this method is for the live-agent path, not for
+        tests, which exercise the grounded pieces directly instead.
+        """
+        if llm is None:
+            raise ValueError("route_subtask requires a live chat model; see run_reflexion_reassignment for the LLM-free grounded path used in tests.")
+        from planning.routing import PlanningRouter
+
+        router = PlanningRouter(llm, environment=self.environment)
+        return router.run(request)
+
+    def evaluate_candidate(self, candidate_text: str) -> dict:
+        """Grounded pass/fail on one proposed reassignment, no LLM involved.
+
+        This is the same `GroundedEnvironment` LATS uses internally,
+        exposed directly so the scheduling agent (and Reflexion, below) can
+        check a candidate against the real database without paying for a
+        model call.
+        """
+        feedback = self.environment.evaluate(candidate_text)
+        return {
+            "success": feedback.success,
+            "score": feedback.score,
+            "errors": feedback.details,
+        }
+
+    def run_reflexion_reassignment(
+        self,
+        flight_id_str: str,
+        candidates: list[str],
+        max_trials: int = 3,
+    ) -> dict:
+        """Reflexion over a list of candidate reassignments, grounded by the
+        real database on every trial.
+
+        Unlike `run_disrupted_flight_workflow`'s two-plan divergence demo
+        (decomposition-first vs. dynamic, no retries), this is the case a
+        single retry genuinely isn't enough for: several candidates in a
+        row can each fail a *different* real constraint (one aircraft is
+        under maintenance, the next proposed crew member is over the duty
+        limit), and only carrying the accumulated episodic reflections
+        forward tells the planner which candidates are already known-bad.
+
+        The `planner` here is a deterministic stand-in for an LLM call: it
+        picks the next untried candidate, skipping any name it already
+        knows failed from `previous_lessons`. In the live agent this
+        planner argument is replaced by a real LLM call (see
+        `planning.dynamic_decomposition` for the same interleaved shape);
+        the executor/grounding below is identical either way, and is what
+        actually matters for the "grounded Reflexion" concern.
+        """
+
+        def planner(request, previous_lessons=None):
+            tried = set()
+            for lesson in previous_lessons or []:
+                tried.update(lesson.get("plan", {}).get("candidate_pool_seen", []))
+            remaining = [c for c in candidates if c not in tried]
+            candidate = remaining[0] if remaining else candidates[-1]
+            return {
+                "flight_id": request["flight_id"],
+                "candidate": candidate,
+                "candidate_pool_seen": [c for c in candidates if c in tried] + [candidate],
+            }
+
+        def executor(plan):
+            outcome = self.evaluate_candidate(plan["candidate"])
+            return outcome
+
+        agent = ReflexionAgent(planner=planner, executor=executor, max_trials=max_trials)
+        result = agent.run({"flight_id": flight_id_str})
+        return result
+
+    def refine_notification(self, draft_message: str, required_facts: list[str], max_iterations: int = 3) -> dict:
+        """Self-Refine loop for the cheap-to-redo sub-task: drafting the
+        passenger/crew notification once a reassignment decision is made.
+
+        Grounded, not the model grading its own prose: the validator is a
+        real string-containment check against the facts the notification
+        is legally/operationally required to state (new flight number,
+        new departure time, the reassigned resource), not an LLM asked
+        "does this notification look good?".
+        """
+
+        def validator(message: str) -> dict:
+            missing = [fact for fact in required_facts if fact.lower() not in message.lower()]
+            return {"valid": not missing, "errors": [f"missing required fact: {fact}" for fact in missing]}
+
+        def reviser(message: str, errors: list[str]) -> str:
+            # A real LLM call would rewrite the draft in prose; this
+            # deterministic stand-in appends exactly the facts the
+            # validator flagged as missing, which is enough to make the
+            # revision step verifiably change the message shape being
+            # tested here (see planning/self_refine.py's reviser fix).
+            missing = [fact for fact in required_facts if fact.lower() not in message.lower()]
+            if not missing:
+                return message
+            return message.rstrip() + " " + " ".join(f"[{fact}]" for fact in missing)
+
+        refiner = SelfRefiner(validator=validator, max_iterations=max_iterations, reviser=reviser)
+        return refiner.refine(draft_message)
 
     def run_disrupted_flight_workflow(
         self,

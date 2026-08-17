@@ -1,3 +1,25 @@
+# Core MCP server / agent
 mcp
 aiosqlite
 python-dotenv
+
+# planning/ — Task, Plan, EnvironmentFeedback models + DAG validation
+pydantic>=2.0
+networkx
+
+# planning/ — decomposition, dynamic_decomposition, plan_and_solve,
+# tree_of_thoughts, lats all call an LLM through langchain's BaseChatModel
+# interface; langchain_google_genai is the provider actually wired in
+# (see GEMINI_API_KEY in .env_example / evaluation/eval.py).
+langchain_core
+langchain_google_genai
+
+# rag/ — chunking, embeddings, vector store, hybrid search
+langchain_community
+langchain_text_splitters
+langchain_chroma
+langchain_huggingface
+rank_bm25
+
+# tests/
+pytest
