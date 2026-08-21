@@ -1,5 +1,5 @@
-from mcp_app import mcp
-from database import get_connection
+from .mcp_app import mcp
+from .database import get_connection
 
 
 # Policies
