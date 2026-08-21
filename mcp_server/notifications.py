@@ -5,8 +5,8 @@ Notification helpers for Blue Horizon Flight Operations.
 from mcp.server.fastmcp import Context
 from mcp.types import ToolListChangedNotification
 
-from mcp_app import mcp
-from database import get_connection
+from .mcp_app import mcp
+from .database import get_connection
 
 
 # --------------------------------------------------------------------

@@ -1,9 +1,11 @@
 import sys
-from mcp_app import mcp
-from database import initialize_database
-import tools
-import resources
-import prompts
+
+from .database import initialize_database
+from . import tools
+from . import resources
+from . import prompts
+from .mcp_app import mcp
+
 
 def start_server():
     initialize_database()
@@ -28,6 +30,7 @@ def start_server():
         mcp.run(
             transport="stdio"
         )
+
 
 if __name__ == "__main__":
     start_server()

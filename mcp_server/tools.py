@@ -1,17 +1,22 @@
 from contextlib import contextmanager
 from typing import Literal
 
-from database import get_connection
+from .database import get_connection
 from mcp.types import SamplingMessage, TextContent
 from mcp.server.fastmcp import Context
-from notifications import SessionState
-from elicitation import confirm_cancel_flight
-from mcp_app import mcp
-from schemas import (
+from .elicitation import confirm_cancel_flight
+from .mcp_app import mcp
+from .schemas import (
     CancelFlightInput,
     AssignAircraftInput,
     AssignBackupCrewInput,
 )
+from .notifications import (
+    SessionState,
+    authenticate_manager,
+    deauthenticate_manager,
+)
+from .tool_registry import tool_registry
 
 
 DecisionType = Literal[
@@ -149,7 +154,10 @@ def assign_aircraft(data: AssignAircraftInput):
             (data.flight_id,)
         )
 
-        return {"success": True, "message": "Aircraft assigned successfully"}
+        return {
+            "success": True,
+            "message": "Aircraft assigned successfully"
+        }
 
 
 @mcp.tool()
@@ -235,7 +243,10 @@ def assign_backup_crew(data: AssignBackupCrewInput):
             (data.flight_id,)
         )
 
-        return {"success": True, "message": "Backup crew assigned successfully"}
+        return {
+            "success": True,
+            "message": "Backup crew assigned successfully"
+        }
 
 
 @mcp.tool()
@@ -291,7 +302,10 @@ def reschedule_flight(
             (flight_id,)
         )
 
-        return {"success": True, "message": "Flight rescheduled successfully"}
+        return {
+            "success": True,
+            "message": "Flight rescheduled successfully"
+        }
 
 
 @mcp.tool()
@@ -347,7 +361,10 @@ async def cancel_flight(data: CancelFlightInput, ctx: Context):
             (data.flight_id, data.reason)
         )
 
-        return {"success": True, "message": "Flight cancelled successfully"}
+        return {
+            "success": True,
+            "message": "Flight cancelled successfully"
+        }
 
 
 @mcp.tool()
@@ -415,7 +432,10 @@ def complete_maintenance(maintenance_id: int, employee_id: int):
             (maintenance["aircraft_id"],)
         )
 
-        return {"success": True, "message": "Maintenance completed successfully"}
+        return {
+            "success": True,
+            "message": "Maintenance completed successfully"
+        }
 
 
 @mcp.tool()
@@ -501,7 +521,10 @@ def send_notification(flight_id: int, recipient: str, message: str):
             (flight_id, recipient, message)
         )
 
-        return {"success": True, "message": "Notification created"}
+        return {
+            "success": True,
+            "message": "Notification created"
+        }
 
 
 @mcp.tool()
@@ -668,3 +691,63 @@ async def generate_operations_report(ctx: Context):
         "flights_processed": len(flights),
         "report": report
     }
+
+
+# --------------------------------------------------------------------
+# Runtime tool catalogue
+# --------------------------------------------------------------------
+
+tool_registry.add_to_catalog(
+    "authenticate_manager",
+    authenticate_manager,
+)
+
+tool_registry.add_to_catalog(
+    "deauthenticate_manager",
+    deauthenticate_manager,
+)
+
+tool_registry.add_to_catalog(
+    "assign_aircraft",
+    assign_aircraft,
+)
+
+tool_registry.add_to_catalog(
+    "assign_backup_crew",
+    assign_backup_crew,
+)
+
+tool_registry.add_to_catalog(
+    "reschedule_flight",
+    reschedule_flight,
+)
+
+tool_registry.add_to_catalog(
+    "cancel_flight",
+    cancel_flight,
+)
+
+tool_registry.add_to_catalog(
+    "complete_maintenance",
+    complete_maintenance,
+)
+
+tool_registry.add_to_catalog(
+    "create_operation_decision",
+    create_operation_decision,
+)
+
+tool_registry.add_to_catalog(
+    "send_notification",
+    send_notification,
+)
+
+tool_registry.add_to_catalog(
+    "resolve_operational_issue",
+    resolve_operational_issue,
+)
+
+tool_registry.add_to_catalog(
+    "generate_operations_report",
+    generate_operations_report,
+)

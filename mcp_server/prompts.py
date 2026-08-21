@@ -1,4 +1,4 @@
-from mcp_app import mcp
+from .mcp_app import mcp
 
 
 @mcp.prompt()
