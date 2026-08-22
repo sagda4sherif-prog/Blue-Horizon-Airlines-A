@@ -6,14 +6,23 @@ class ShortTermMemory:
     def __init__(self, max_size=20, expiration_minutes=30):
         self.max_size = max_size
         self.expiration_minutes = expiration_minutes
-        self.items = deque(maxlen=max_size)
+        self.items = deque()
 
     def add(self, content, metadata=None):
-        self.items.append({
+        item = {
             "content": content,
             "metadata": metadata or {},
             "created_at": datetime.utcnow(),
-        })
+        }
+
+        overflow = None
+
+        if len(self.items) >= self.max_size:
+            overflow = self.items.popleft()
+
+        self.items.append(item)
+
+        return overflow
 
     def get_all(self):
         now = datetime.utcnow()
