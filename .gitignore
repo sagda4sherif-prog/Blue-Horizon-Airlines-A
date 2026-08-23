@@ -13,3 +13,10 @@ env/
 
 # Vector database
 vector_db/
+
+
+# platform/frontend/ (Next.js)
+platform/frontend/node_modules/
+platform/frontend/.next/
+platform/frontend/.env.local
+platform/frontend/out/
