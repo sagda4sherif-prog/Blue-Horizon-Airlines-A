@@ -1,4 +1,6 @@
 import os
+import warnings
+
 from dotenv import load_dotenv
 
 from langchain_community.document_loaders import TextLoader
@@ -8,16 +10,24 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_chroma import Chroma
 from rank_bm25 import BM25Okapi
 
+
 load_dotenv()
 
+
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 DEFAULT_DATA_PATH = os.path.join(
     PROJECT_ROOT,
     "rag_data",
-    "operational_policies.txt"
+    "operational_policies.txt",
 )
+
 PARENT_ROOT = os.path.dirname(PROJECT_ROOT)
-DEFAULT_VECTOR_DB_PATH = os.path.join(PARENT_ROOT, "vector_db")
+
+DEFAULT_VECTOR_DB_PATH = os.path.join(
+    PARENT_ROOT,
+    "vector_db",
+)
 
 
 class OperationalRAGPipeline:
@@ -28,15 +38,18 @@ class OperationalRAGPipeline:
     ):
         self.file_path = file_path
         self.persist_directory = persist_directory
+
         self.embeddings = HuggingFaceEmbeddings(
             model_name="all-MiniLM-L6-v2"
         )
+
         self.vector_store = None
         self.documents_cache = []
         self.metadata_cache = []
         self.metadata_index = {}
         self.bm25_index = None
         self.llm = None
+
         self._initialize_pipeline()
 
     def _load_documents(self):
@@ -45,7 +58,7 @@ class OperationalRAGPipeline:
                 PARENT_ROOT,
                 "agent",
                 "rag_data",
-                "operational_policies.txt"
+                "operational_policies.txt",
             )
 
             if os.path.exists(alt_path):
@@ -53,7 +66,7 @@ class OperationalRAGPipeline:
             else:
                 alt_path_root = os.path.join(
                     PARENT_ROOT,
-                    "operational_policies.txt"
+                    "operational_policies.txt",
                 )
 
                 if os.path.exists(alt_path_root):
@@ -65,14 +78,14 @@ class OperationalRAGPipeline:
 
         loader = TextLoader(
             self.file_path,
-            encoding="utf-8"
+            encoding="utf-8",
         )
 
         raw_docs = loader.load()
 
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=400,
-            chunk_overlap=60
+            chunk_overlap=60,
         )
 
         return splitter.split_documents(raw_docs)
@@ -82,15 +95,17 @@ class OperationalRAGPipeline:
 
         for index, document in enumerate(chunks):
             metadata = document.metadata or {}
+
             metadata["source"] = os.path.basename(self.file_path)
             metadata["chunk_id"] = index
+
             document.metadata = metadata
 
             for key, value in metadata.items():
                 self.metadata_index.setdefault(key, {})
                 self.metadata_index[key].setdefault(
                     str(value),
-                    set()
+                    set(),
                 )
                 self.metadata_index[key][str(value)].add(index)
 
@@ -131,7 +146,10 @@ class OperationalRAGPipeline:
                 include=["documents", "metadatas"]
             )
 
-            existing_metadatas = existing_data.get("metadatas", [])
+            existing_metadatas = existing_data.get(
+                "metadatas",
+                [],
+            )
 
             if (
                 not existing_metadatas
@@ -147,6 +165,7 @@ class OperationalRAGPipeline:
                     embedding=self.embeddings,
                     persist_directory=self.persist_directory,
                 )
+
         else:
             self.vector_store = Chroma.from_documents(
                 documents=chunks,
@@ -167,8 +186,10 @@ class OperationalRAGPipeline:
                     "environment variable is not set."
                 )
 
+            # gemini-1.5-flash is no longer available.
+            # Keep the replacement used by the project evaluation code.
             self.llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
+                model="gemini-3.5-flash-lite",
                 google_api_key=api_key,
                 temperature=0,
             )
@@ -232,6 +253,7 @@ class OperationalRAGPipeline:
         ]
 
         tokenized_query = query.split()
+
         bm25_scores = self.bm25_index.get_scores(
             tokenized_query
         )
@@ -244,7 +266,7 @@ class OperationalRAGPipeline:
                 for index in candidate_indices
                 if self._matches_metadata(
                     index,
-                    metadata_filter
+                    metadata_filter,
                 )
             ]
 
@@ -300,7 +322,8 @@ class OperationalRAGPipeline:
 
             critique_prompt = (
                 "Analyze if the retrieved policy context is fully "
-                f"sufficient to answer the query: '{query}'.\n"
+                "sufficient to answer the query: "
+                f"'{query}'.\n"
                 f"Context:\n{context_str}\n"
                 "Reply with 'SUFFICIENT' or provide a refined "
                 "search query if more information is needed."
@@ -332,7 +355,14 @@ class OperationalRAGPipeline:
 
             return initial_docs
 
-        except Exception:
+        except Exception as exc:
+            warnings.warn(
+                "agentic_rag: critique/refine step failed "
+                f"({type(exc).__name__}: {exc}); "
+                "falling back to plain hybrid_search for this query.",
+                stacklevel=2,
+            )
+
             return self.hybrid_search(
                 query,
                 top_k=3,
@@ -378,7 +408,14 @@ class OperationalRAGPipeline:
 
             return raw_text.strip().upper() == "YES"
 
-        except Exception:
+        except Exception as exc:
+            warnings.warn(
+                "self_rag_verification: verification call failed "
+                f"({type(exc).__name__}: {exc}); "
+                "treating as NOT verified rather than silently passing.",
+                stacklevel=2,
+            )
+
             return False
 
     def get_metadata_index(self):

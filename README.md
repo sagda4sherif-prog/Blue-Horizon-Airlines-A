@@ -406,9 +406,9 @@ from what was actually sent/retrieved on each call — not a fixed number).
 >
 > | Architecture | Accuracy | Avg Latency (s) | Avg Tokens |
 > |---|---|---|---|
-> | Naive RAG | | | |
-> | Hybrid Search | | | |
-> | Agentic RAG | | | |
+> | Naive RAG | 3/3 | 0.05 | 194 |
+> | Hybrid Search | 3/3 | 0.03 | 183 |
+> | Agentic RAG | 3/3 | 0.64 | 203 |
 
 ## Setup & Run Instructions
 
@@ -572,14 +572,30 @@ submitting, in this shape:
 
 | Method | Task success | Avg. LLM calls | Avg. tokens | Avg. latency | Est. cost/run |
 |---|---|---|---|---|---|
-| Decomposition-first | | | | | |
-| Dynamic decomposition | | | | | |
-| Plan-and-Solve | | | | | |
-| Tree of Thoughts | | | | | |
-| LATS, ungrounded (`RandomEnvironment`) | | | | | |
-| LATS, grounded (`GroundedEnvironment`) | | | | | |
-| Self-Refine | | | | | |
-| Reflexion | | | | | |
+| Decomposition-first | yes | 5 | ~1734 | 5.02s | set PRICE_PER_1K_TOKENS |
+| Dynamic decomposition | yes | 7 | ~875 | 5.25s | set PRICE_PER_1K_TOKENS |
+| Plan-and-Solve | yes | 1 | 803 | 3.30s | set PRICE_PER_1K_TOKENS |
+| Tree of Thoughts | yes | 9 | ~471 | 25.96s | set PRICE_PER_1K_TOKENS |
+| LATS, ungrounded (`RandomEnvironment`) | yes | 2 | ~138 | 2.33s | set PRICE_PER_1K_TOKENS |
+| LATS, grounded (`GroundedEnvironment`) | yes | 2 | ~113 | 2.13s | set PRICE_PER_1K_TOKENS |
+| Self-Refine | yes | 1 | 95 | 0.78s | set PRICE_PER_1K_TOKENS |
+| Reflexion | yes | 4 | 766 | 2.41s | set PRICE_PER_1K_TOKENS |
+
+Some rows fall back to a word-count token *estimate* because the API response
+for that call type didn't return `usage_metadata` (marked with `~` above).
+`Est. cost/run` is unset — fill in `PRICE_PER_1K_TOKENS` at the top of
+`planning_eval/method_comparison.py` with the model's real published rate
+before that column means anything.
+
+**LATS, grounded now succeeds too** (it previously failed): the task prompt
+sent to the LLM used to ask it to propose a valid aircraft/backup-crew
+combination with zero visibility into the real fleet and crew data —
+`GroundedEnvironment` was grounding the *check*, but nothing grounded the
+*guess*, so the model was picking aircraft/crew ids blind against a search
+budget of only 4 candidates. `run_lats()` now injects the real aircraft and
+crew status (from `db/blue_horizon.db`) directly into the prompt, and the
+search budget was raised from `iterations=2, n_actions=2` to `iterations=4,
+n_actions=3`. See `planning_eval/method_comparison.py::_real_db_context()`.
 
 ## Test Cases (Prompts) Demonstrating Each Concern
 
@@ -697,7 +713,7 @@ just this table):
 | Owner | Concern |
 |---|---|
 | Dalia Hossam | `planning/decomposition.py`, `planning/dynamic_decomposition.py`, `planning/models.py` (DAG + both decomposition methods) |
-| Dalia Hossam, salma ahmed | `planning/plan_and_solve.py`, `planning/tree_of_thoughts.py`, `planning/lats.py`, `planning/routing.py` (three planning algorithms + routing) |
-| Dalia Hossam, salma ahmed, sama sherif | `planning/self_refine.py`, `reflexion.py`, `planning/environment.py` (self-correction, both scopes + grounded environment) |
+| Dalia Hossam, Somia ahmed | `planning/plan_and_solve.py`, `planning/tree_of_thoughts.py`, `planning/lats.py`, `planning/routing.py` (three planning algorithms + routing) |
+| Dalia Hossam, Somia ahmed, sama sherif | `planning/self_refine.py`, `reflexion.py`, `planning/environment.py` (self-correction, both scopes + grounded environment) |
 | Dalia Hossam, sama sherif | `planning_eval/`, `artifacts/planning_results.json`, the comparison table (evaluation harness) |
 | Dalia Hossam | `agent/scheduling_agent.py`, integration into the live agent loop, demo transcript |

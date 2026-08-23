@@ -18,8 +18,18 @@ logger = logging.getLogger("SchedulingAgent")
 class DatabaseManager:
     """Manages operation-decision logging in the Blue Horizon database."""
 
-    def __init__(self, db_path="db/blue_horizon.db"):
-        self.db_path = db_path
+    # Bug fix: this was a bare relative path ("db/blue_horizon.db"), unlike
+    # every other DB path in the project (GroundedEnvironment.DEFAULT_DB_PATH,
+    # method_comparison.py, evaluation/eval.py) which all anchor to the
+    # project root via `__file__`. A relative path here only resolves when
+    # the process's cwd happens to be the project root; anywhere else it
+    # silently no-ops (log_decision just warns and returns -- it doesn't
+    # raise), so operation-decision logging could go quietly missing
+    # depending on how/where the agent is invoked from.
+    DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "db" / "blue_horizon.db"
+
+    def __init__(self, db_path: Path | str = DEFAULT_DB_PATH):
+        self.db_path = str(db_path)
 
     def log_decision(
         self,

@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict
 
+from .llm_content import extract_text
 from .models import Plan
 
 
@@ -76,8 +77,8 @@ def execute_plan(plan: Plan, llm: BaseChatModel, max_workers: int = 4) -> dict[s
                 for task_id, prompt in prompts.items()
             }
             for future in as_completed(futures):
-                content = future.result().content
-                if not isinstance(content, str) or not content.strip():
+                content = extract_text(future.result().content)
+                if not content.strip():
                     raise RuntimeError("The chat model returned an empty or unsupported response")
                 outputs[futures[future]] = content.strip()
     return outputs

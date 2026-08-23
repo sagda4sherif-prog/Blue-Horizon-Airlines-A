@@ -1,6 +1,8 @@
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict
 
+from .llm_content import extract_text
+
 
 class DynamicDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -34,8 +36,8 @@ When done is true, use an empty string for next_task."""),
             ("system", "Execute the next adaptive sub-task using the observations provided."),
             ("human", f"Goal: {goal}\nNext task: {task}\nPrior observations:\n{observation}"),
         ], temperature=0.2)
-        result = response.content
-        if not isinstance(result, str) or not result.strip():
+        result = extract_text(response.content)
+        if not result.strip():
             raise RuntimeError("The chat model returned an empty or unsupported response")
         result = result.strip()
         history.append((task, result))

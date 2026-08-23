@@ -10,6 +10,50 @@ from .scenarios import SCENARIOS
 logger = logging.getLogger("EvaluationRunner")
 
 
+def _build_real_planner():
+    """Wire a real Gemini-backed `PlanningRouter` for `python -m
+    planning_eval.runner`.
+
+    Bug fix: this module previously had no `if __name__ == "__main__":`
+    entry point at all, so the README's documented command
+    (`python -m planning_eval.runner`) silently did nothing -- no planner
+    was ever built, `EvaluationRunner.run()` was never called, and
+    `artifacts/planning_results.json` was left as an empty placeholder
+    file instead of the real per-scenario trace the README's Cost and
+    Quality Comparison section expects. This wires the same real
+    `langchain_google_genai` chat model + grounded `PlanningRouter` the
+    README describes, against `planning_eval/scenarios.py`.
+    """
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY not set. Copy .env_example to .env and fill "
+            "in a real key before running the evaluation."
+        )
+
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    from planning.environment import GroundedEnvironment
+    from planning.routing import PlanningRouter
+
+    # Same model choice/rationale as planning_eval/method_comparison.py:
+    # gemini-1.5-flash is retired and gemini-2.5-flash-lite is closed to
+    # new users as of 2026; swap this if it's retired by the time you run it.
+    llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash-lite", temperature=0.2)
+    router = PlanningRouter(llm, GroundedEnvironment())
+
+    def planner(request: str) -> dict:
+        payload = router.run(request)
+        payload["valid"] = payload.get("success", False)
+        return payload
+
+    return planner
+
+
 class EvaluationRunner:
     """
     Runs planning evaluation scenarios and persists the results.
@@ -189,3 +233,18 @@ class EvaluationRunner:
         self.save_results(results)
 
         return results
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    real_planner = _build_real_planner()
+    runner = EvaluationRunner(planner=real_planner)
+    outcome = runner.run()
+
+    print(
+        f"Ran {outcome['summary']['total']} scenarios: "
+        f"{outcome['summary']['passed']} passed, "
+        f"{outcome['summary']['failed']} failed. "
+        f"See {runner.output_path}."
+    )

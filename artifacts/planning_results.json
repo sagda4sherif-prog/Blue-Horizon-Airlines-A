@@ -1,1 +1,79 @@
-
+{
+    "scenarios": [
+        {
+            "id": "cancelled_flight_available_seat",
+            "description": "Cancelled flight with an available alternative seat or routing.",
+            "request": "Flight BH218 is cancelled, find an alternative flight or available resources.",
+            "expected_strategy": "plan_and_solve",
+            "success": true,
+            "result": {
+                "output": "Check for connecting flights with the same airline on the same day to reach the destination.",
+                "success": true,
+                "score": 0.8,
+                "candidates": [
+                    {
+                        "state": "Check for connecting flights with the same airline on the same day to reach the destination.",
+                        "score": 0.8,
+                        "rationale": "The candidate path is feasible and represents a logical step in rebooking a cancelled flight (checking for same-airline connections on the same day). It makes good progress toward resolving the issue, though it assumes availability and does not cover all alternatives like other airlines or refunds."
+                    },
+                    {
+                        "state": "Search for direct flights operated by partner airlines or alternative carriers departing on the same day.",
+                        "score": 0.8,
+                        "rationale": "The candidate path directly addresses the problem by searching for alternative flights on the same day with partner or alternative carriers, which is the correct and feasible first step to rebook a cancelled flight."
+                    }
+                ],
+                "routed_strategy": "tree_of_thoughts",
+                "valid": true
+            }
+        },
+        {
+            "id": "cancelled_flight_full_alternative",
+            "description": "Cancelled flight where premium seats are full, requiring dynamic rerouting.",
+            "request": "Premium cabin is fully booked for flight BH305. Avoid full alternatives and use fallback.",
+            "expected_strategy": "tree_of_thoughts",
+            "success": true,
+            "result": {
+                "output": "PLAN:\n1. **Analyze the input and constraints:**\n   - Flight: BH305\n   - Cabin status: Premium cabin is *fully booked*.\n   - Constraint 1: Avoid full alternatives (do not suggest or book fully booked alternative flights/cabins).\n   - Constraint 2: Use fallback (propose a valid fallback option such as economy class, standby, or a different flight with available seats).\n\n2. **Formulate the resolution steps:**\n   - Acknowledge the status of flight BH305 (Premium cabin unavailable).\n   - Identify potential alternatives while avoiding fully booked options.\n   - Apply the fallback strategy (e.g., Economy class on BH305, or booking a different flight with premium availability).\n\n3. **Execute and Verify:**\n   - Ensure the final recommendation adheres strictly to the constraints.\n\n---\n\nSOLUTION:\n\n**Step 1: Status Recognition**\n- Flight BH305 has its Premium cabin fully booked. No further premium seats can be assigned on this specific flight.\n\n**Step 2: Alternative Evaluation (Avoiding Full Alternatives)**\n- Direct alternative premium cabins on adjacent flights must be checked for availability. If other flights are also fully booked in the premium cabin, they are excluded.\n\n**Step 3: Applying the Fallback Strategy**\n- Since the premium cabin on flight BH305 is unavailable, we implement the fallback plan:\n  1. **Primary Fallback:** Book an **Economy class seat on flight BH305** (if available) to maintain the same schedule, with a request for paid upgrade at the gate if a cancellation occurs.\n  2. **Secondary Fallback:** Book a **Premium cabin seat on the next available flight** (e.g., BH307) that currently has verified open premium seats, avoiding any fully booked alternatives.\n\n**Final Recommendation:** \nProceed with the Economy class fallback on flight BH305 or reroute to the next available flight with confirmed premium inventory.",
+                "success": true,
+                "score": null,
+                "routed_strategy": "plan_and_solve",
+                "valid": true
+            }
+        },
+        {
+            "id": "fallback_after_validation_failure",
+            "description": "First alternative fails validation and a dynamic fallback is required.",
+            "request": "Flight BH204 crew reached duty limit; select a valid fallback after validation failure.",
+            "expected_strategy": "lats_grounded",
+            "success": true,
+            "result": {
+                "output": "Select Crew 1 as Captain and Crew 2 as First Officer for Flight BH204.",
+                "success": true,
+                "score": 1.0,
+                "iterations": 1,
+                "routed_strategy": "lats_grounded",
+                "valid": true
+            }
+        },
+        {
+            "id": "constraint_violation",
+            "description": "Candidate plan violates an operational constraint (e.g., active maintenance).",
+            "request": "Allocate an aircraft for flight BH218, rejecting plans violating maintenance constraints.",
+            "expected_strategy": "lats_grounded",
+            "success": true,
+            "result": {
+                "output": "Candidate 1: Allocate Aircraft 1 for flight BH218.",
+                "success": true,
+                "score": 1.0,
+                "iterations": 1,
+                "routed_strategy": "lats_grounded",
+                "valid": true
+            }
+        }
+    ],
+    "summary": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0
+    }
+}

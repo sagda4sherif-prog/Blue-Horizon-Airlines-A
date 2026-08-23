@@ -88,6 +88,67 @@ class GroundedEnvironment:
             details=[] if success else details,
         )
 
+    def describe_state(self) -> str:
+        """Human-readable snapshot of the fleet/crew, for grounding LLM
+        proposals *before* they're generated.
+
+        Bug fix: LATS action-generation had no visibility into
+        `blue_horizon.db` at all, so Gemini proposed realistic-sounding
+        but ungrounded candidates ("Aircraft A320-200, Tail N105US",
+        "Captain Smith") that `_check_aircraft`/`_check_crew` can never
+        resolve to a real row, since those checks only understand the
+        literal "Aircraft <id>" / "Crew <id>" form. This exposes the same
+        facts `_check_aircraft`/`_check_crew` already read, so the model
+        can propose candidates using the airline's real numeric IDs
+        instead of inventing unresolvable ones. It doesn't tell the model
+        which candidate is "correct" -- just what's actually in the
+        database, same as any human dispatcher would have in front of them.
+        """
+        try:
+            conn = self._connect()
+        except sqlite3.Error as exc:
+            return f"(Could not read Blue Horizon database: {exc})"
+
+        try:
+            aircraft_rows = conn.execute(
+                "SELECT aircraft_id, tail_number, model, status FROM Aircraft"
+            ).fetchall()
+            maint_rows = conn.execute(
+                """
+                SELECT aircraft_id, severity FROM Maintenance
+                WHERE status IN ('Pending', 'In Progress')
+                """
+            ).fetchall()
+            crew_rows = conn.execute(
+                "SELECT crew_id, name, role, availability, hours_flown_today FROM Crew"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        open_maint: dict[int, str] = {}
+        for m in maint_rows:
+            open_maint.setdefault(m["aircraft_id"], m["severity"])
+
+        lines = ['Aircraft (refer to one using exactly "Aircraft <id>"):']
+        for a in aircraft_rows:
+            sev = open_maint.get(a["aircraft_id"])
+            maint_note = f", open {sev}-severity maintenance" if sev else ""
+            lines.append(
+                f"- Aircraft {a['aircraft_id']} ({a['tail_number']}, {a['model']}): "
+                f"status={a['status']}{maint_note}"
+            )
+
+        lines.append("")
+        lines.append('Crew (refer to one using exactly "Crew <id>"):')
+        for c in crew_rows:
+            lines.append(
+                f"- Crew {c['crew_id']} ({c['name']}, {c['role']}): "
+                f"available={bool(c['availability'])}, "
+                f"hours_flown_today={c['hours_flown_today']}"
+            )
+
+        return "\n".join(lines)
+
     @staticmethod
     def _check_aircraft(conn: sqlite3.Connection, aircraft_id: int, flight_ids: list[int]) -> tuple[bool, str]:
         row = conn.execute(

@@ -14,6 +14,7 @@ imported by `agent/scheduling_agent.py`.
 
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -52,13 +53,21 @@ class PlanningRouter:
     @staticmethod
     def choose_strategy(request: str) -> str:
         text = request.lower()
-        high_risk = any(
-            word in text
-            for word in ("allocate", "assign", "backup", "replace", "aircraft", "crew", "cancel")
+
+        # Bug fix (see README Bug Fix Log): these were plain substring
+        # checks, so e.g. "cancel" matched inside "cancelled" and routed
+        # a request that just needs an alternative-flight lookup into
+        # grounded LATS -- which then auto-failed because a rebooking
+        # narrative has no aircraft/crew ID for GroundedEnvironment to
+        # check. `\bword\b` matches the whole word only.
+        def _contains_word(words: tuple[str, ...]) -> bool:
+            return any(re.search(rf"\b{re.escape(word)}\b", text) for word in words)
+
+        high_risk = _contains_word(
+            ("allocate", "assign", "backup", "replace", "aircraft", "crew", "cancel")
         )
-        branching = any(
-            word in text
-            for word in ("alternative", "options", "compare", "best", "priority", "which", "rank")
+        branching = _contains_word(
+            ("alternative", "options", "compare", "best", "priority", "which", "rank")
         )
         if high_risk:
             return "lats_grounded"

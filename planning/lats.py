@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import EnvironmentFeedback
 from .environment import Environment
+from .llm_content import extract_text
+from .models import EnvironmentFeedback
 
 
 class LATSAction(BaseModel):
@@ -95,6 +96,17 @@ def lats(
 ) -> LATSResult:
     if iterations < 1 or n_actions < 1:
         raise ValueError("iterations and n_actions must be positive")
+
+    # Bug fix: action generation previously had zero visibility into the
+    # real database `environment` checks against, so the model proposed
+    # ungrounded-but-plausible candidates ("Aircraft A320-200, Tail
+    # N105US") that could never pass `_check_aircraft`/`_check_crew`
+    # (which only parse the literal "Aircraft <id>" / "Crew <id>" form).
+    # `describe_state` is optional so this stays compatible with any
+    # `Environment` that doesn't implement it (e.g. `RandomEnvironment`).
+    grounding = environment.describe_state() if hasattr(environment, "describe_state") else ""
+    grounding_block = f"\nReference data (the airline's real current fleet/crew status):\n{grounding}\n" if grounding else ""
+
     root = LATSNode(state="No attempt yet.")
     best = root
     completed_iterations = 0
@@ -107,8 +119,23 @@ def lats(
             LATSActionBatch,
             method="json_schema",
         ).invoke([
-            ("system", "You are the action generator in LATS."),
+            ("system", "You are the action generator in LATS. When a candidate "
+                       "commits a specific aircraft or crew member, refer to it "
+                       "using exactly \"Aircraft <id>\" / \"Crew <id>\" from the "
+                       "reference data you're given -- never a tail number, "
+                       "aircraft model name, or a crew member's name alone, "
+                       "since only the ID form can be checked against the real "
+                       "database. The candidate state is checked by re-reading "
+                       "every \"Aircraft <id>\" / \"Crew <id>\" mention in it "
+                       "against that database, with no way to tell a genuine "
+                       "commitment apart from one you're merely discussing or "
+                       "rejecting -- so state ONLY the aircraft/crew IDs you are "
+                       "actually committing to. If you explain why an "
+                       "alternative was ruled out, describe it in words "
+                       "without repeating its numeric ID (e.g. \"the aircraft "
+                       "currently under maintenance\", not \"Aircraft 3\")."),
             ("human", f"""Task: {task}
+{grounding_block}
 Current trajectory/state:
 {leaf.state}
 Reflections learned from failed branches:
@@ -147,8 +174,8 @@ Resulting state: {child.state}
 External feedback: {feedback.details}
 Explain briefly why this branch failed and how a later expansion should change."""),
                 ], temperature=0.2)
-                reflection = response.content
-                if not isinstance(reflection, str) or not reflection.strip():
+                reflection = extract_text(response.content)
+                if not reflection.strip():
                     raise RuntimeError("The chat model returned an empty or unsupported response")
                 reflection = reflection.strip()
                 child.reflections.append(reflection)
