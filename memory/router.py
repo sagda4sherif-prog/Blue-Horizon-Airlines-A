@@ -30,19 +30,20 @@ class PromoteOrDropRouter:
             for event in operational_events
         )
 
-        if important or has_operational_keyword:
-            return {
-                "action": "promote",
-                "content": content,
-                "metadata": metadata,
-                "reason": "operational or important event"
-            }
+       if important or has_operational_keyword:
+    matched_keywords = [
+        event
+        for event in operational_events
+        if event in text or event in event_type
+    ]
 
-        return {
-            "action": "drop",
-            "reason": "irrelevant event"
-        }
-
+    return {
+        "action": "promote",
+        "content": content,
+        "metadata": metadata,
+        "reason": "operational or important event",
+        "matched_keywords": matched_keywords
+    }
 
 class PromptsGroupRouter(PromoteOrDropRouter):
     pass
