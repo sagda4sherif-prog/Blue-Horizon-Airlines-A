@@ -3,6 +3,7 @@ from langgraph.graph import END, START, StateGraph
 from .nodes import (
     analyze_disruption,
     apply_admin_decision,
+    evaluate_recovery,
     execute_recovery,
     initialize_recovery,
     request_admin_approval,
