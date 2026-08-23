@@ -5,13 +5,13 @@ class PromoteOrDropRouter:
         if not content or not content.strip():
             return {
                 "action": "drop",
-                "reason": "empty content"
+                "reason": "empty content",
+                "matched_keywords": []
             }
 
         text = content.lower()
-
+        event_type = str(metadata.get("event_type", "")).lower()
         important = metadata.get("important", False)
-        event_type = metadata.get("event_type", "").lower()
 
         operational_events = {
             "delay",
@@ -25,25 +25,27 @@ class PromoteOrDropRouter:
             "operational_disruption",
         }
 
-        has_operational_keyword = any(
-            event in text or event in event_type
+        matched_keywords = [
+            event
             for event in operational_events
-        )
+            if event in text or event in event_type
+        ]
 
-       if important or has_operational_keyword:
-    matched_keywords = [
-        event
-        for event in operational_events
-        if event in text or event in event_type
-    ]
+        if important or matched_keywords:
+            return {
+                "action": "promote",
+                "content": content,
+                "metadata": metadata,
+                "reason": "operational or important event",
+                "matched_keywords": matched_keywords
+            }
 
-    return {
-        "action": "promote",
-        "content": content,
-        "metadata": metadata,
-        "reason": "operational or important event",
-        "matched_keywords": matched_keywords
-    }
+        return {
+            "action": "drop",
+            "reason": "irrelevant event",
+            "matched_keywords": []
+        }
+
 
 class PromptsGroupRouter(PromoteOrDropRouter):
     pass
