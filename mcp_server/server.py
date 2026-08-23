@@ -1,16 +1,18 @@
+import os
 import sys
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..")
+    )
+)
 
 from mcp_server.database import initialize_database
-from mcp_server.mcp_app import mcp
 import mcp_server.import_tools
 import mcp_server.import_resources
 import mcp_server.import_prompts
+from mcp_server.mcp_app import mcp
 
 
 def start_server():
@@ -26,12 +28,10 @@ def start_server():
         mcp.run(
             transport="streamable-http",
             host="0.0.0.0",
-            port=8000,
+            port=8000
         )
     else:
-        mcp.run(
-            transport="stdio"
-        )
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
