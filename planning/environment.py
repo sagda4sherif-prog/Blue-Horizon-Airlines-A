@@ -24,9 +24,6 @@ from .models import EnvironmentFeedback
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "db" / "blue_horizon.db"
 
-# A candidate LATS/Reflexion state is free-form model text (e.g. "Reassign
-# Flight 2 (BH218) to Aircraft 1 with backup Crew 1 covering the delay").
-# These patterns pull out the entity ids the grounded checks below need.
 _AIRCRAFT_RE = re.compile(r"aircraft\D{0,8}(\d+)", re.IGNORECASE)
 _CREW_RE = re.compile(r"crew\D{0,8}(\d+)", re.IGNORECASE)
 _FLIGHT_RE = re.compile(r"flight\D{0,8}(\d+)", re.IGNORECASE)
@@ -35,13 +32,7 @@ CREW_DUTY_HOUR_LIMIT = 8  # mirrors mcp_server/tools.py::assign_backup_crew
 
 
 class GroundedEnvironment:
-    """Checks a proposed reshuffle candidate against the real database.
-
-    This is the `EnvironmentFeedback` source LATS and grounded-Reflexion
-    ship with. A candidate is considered successful only if every aircraft
-    and crew id it names would actually pass the same checks Blue Horizon's
-    real write tools apply — no LLM is asked to grade its own output.
-    """
+    """Checks a proposed reshuffle candidate against the real database."""
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH):
         self.db_path = str(db_path)
@@ -57,8 +48,6 @@ class GroundedEnvironment:
         flight_ids = [int(m) for m in _FLIGHT_RE.findall(state)]
 
         if not aircraft_ids and not crew_ids:
-            # Nothing groundable was proposed — this is not a pass, it's an
-            # unverifiable candidate, and unverifiable is not success.
             return EnvironmentFeedback(
                 success=False,
                 score=0.0,
@@ -161,15 +150,7 @@ class GroundedEnvironment:
 
 
 class RandomEnvironment:
-    """The toolkit's original stochastic evaluator.
-
-    Kept only as the "ungrounded" arm of the LATS comparison in
-    `planning_eval/` — see the README's Decomposition & Planning Lab
-    section for the case this evaluator misses that `GroundedEnvironment`
-    catches. Nothing in the shipped agent points at this class; wiring
-    LATS or Reflexion to it is exactly the ungrounded configuration the
-    lab asks us to demonstrate the cost of, not the one we ship.
-    """
+    """The toolkit's original stochastic evaluator (kept as the ungrounded control)."""
 
     def __init__(self, success_threshold: float = 0.6, rng: random.Random | None = None):
         if not 0.0 <= success_threshold <= 1.0:
