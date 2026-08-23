@@ -23,3 +23,9 @@ rank_bm25
 
 # tests/
 pytest
+
+# platform/backend/ — FastAPI bridge between the Next.js platform and
+# the existing mcp_server/, rag/, agent/ code. See platform/README.md.
+fastapi
+uvicorn[standard]
+anthropic
