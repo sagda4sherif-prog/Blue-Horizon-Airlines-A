@@ -569,6 +569,8 @@ edits *one* candidate's text, but the whole candidate here needs replacing,
 not editing. Reflexion's episodic buffer is what carries "Aircraft 3 is a
 dead end" forward so trial 2 doesn't have to relearn it. See
 `tests/test_scheduling_agent_planning.py::test_reflexion_reassignment_needs_more_than_one_retry`.
+```
+ذذذذ
 
 ## Grounded vs. Ungrounded, Shown Failing
 
