@@ -690,15 +690,14 @@ found and fixed after the initial memory/RAG implementation:
 | Person 2 | `mcp_server/` — tools, validation, error handling, capability negotiation | `evaluation/context_evaluation.py`, `agent/context_manager.py` — all four context strategies, long-context test suite, accuracy/token/latency comparison table |
 | Person 3 | `agent/` — client/server connection, run instructions, integration fixes | `rag/` — chunking, embeddings, vector store, naive/hybrid/agentic RAG, Self-RAG verification, `evaluation/eval.py`; final integration of `memory/` and `rag/` into the live agent loop, end-to-end demo |
 
-**Decomposition & Planning Lab ownership — fill in per your team before
-submitting** (issue rationale and linked PRs are graded per-concern, not
-per-file, so this should map to actual commits, not just this table):
+**Decomposition & Planning Lab ownership** (issue rationale and linked PRs
+are graded per-concern, not per-file, so this maps to actual commits, not
+just this table):
 
 | Owner | Concern |
 |---|---|
-| | `planning/decomposition.py`, `planning/dynamic_decomposition.py`, `planning/models.py` (DAG + both decomposition methods) |
-| | `planning/plan_and_solve.py`, `planning/tree_of_thoughts.py`, `planning/lats.py`, `planning/routing.py` (three planning algorithms + routing) |
-| | `planning/self_refine.py`, `reflexion.py`, `planning/environment.py` (self-correction, both scopes + grounded environment) |
-| | `planning_eval/`, `artifacts/planning_results.json`, the comparison table (evaluation harness) |
-| | `agent/scheduling_agent.py`, integration into the live agent loop, demo transcript |
-
+| Dalia Hossam | `planning/decomposition.py`, `planning/dynamic_decomposition.py`, `planning/models.py` (DAG + both decomposition methods) |
+| Dalia Hossam, salma ahmed | `planning/plan_and_solve.py`, `planning/tree_of_thoughts.py`, `planning/lats.py`, `planning/routing.py` (three planning algorithms + routing) |
+| Dalia Hossam, salma ahmed, sama sherif | `planning/self_refine.py`, `reflexion.py`, `planning/environment.py` (self-correction, both scopes + grounded environment) |
+| Dalia Hossam, sama sherif | `planning_eval/`, `artifacts/planning_results.json`, the comparison table (evaluation harness) |
+| Dalia Hossam | `agent/scheduling_agent.py`, integration into the live agent loop, demo transcript |
