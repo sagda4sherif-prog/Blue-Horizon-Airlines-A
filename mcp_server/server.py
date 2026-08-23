@@ -1,10 +1,10 @@
 import sys
 
-from .database import initialize_database
-from . import tools
-from . import resources
-from . import prompts
-from .mcp_app import mcp
+from mcp_server.database import initialize_database
+from mcp_server import import_tools
+from mcp_server import import_resources
+from mcp_server import import_prompts
+from mcp_server.mcp_app import mcp
 
 
 def start_server():
@@ -17,18 +17,15 @@ def start_server():
 
     if transport == "http":
         print("Blue Horizon MCP Server is running on http://localhost:8000")
-
         mcp.run(
             transport="streamable-http",
             host="0.0.0.0",
-            port=8000
+            port=8000,
         )
-
     else:
         print("Blue Horizon MCP Server is running using stdio")
-
         mcp.run(
-            transport="stdio"
+            transport="stdio",
         )
 
 
