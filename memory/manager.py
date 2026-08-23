@@ -11,20 +11,24 @@ class MemoryManager:
         self.episodic = EpisodicMemory()
         self.semantic = SemanticMemory()
         self.router = PromoteOrDropRouter()
-
         self.consolidation = ConsolidationLayer(
             self.episodic,
             self.semantic
         )
 
     def remember(self, content, metadata=None):
-        self.short_term.add(content, metadata)
+        overflow = self.short_term.add(content, metadata)
 
-        item = self.short_term.get_all()[-1]
+        if overflow is None:
+            return {
+                "action": "short_term",
+                "content": content,
+                "metadata": metadata or {}
+            }
 
         decision = self.router.route(
-            item["content"],
-            item["metadata"]
+            overflow["content"],
+            overflow["metadata"]
         )
 
         if decision["action"] == "promote":
@@ -33,32 +37,18 @@ class MemoryManager:
                 decision["metadata"]
             )
 
-            # NOTE: consolidation is intentionally NOT triggered here.
-            # The promote-or-drop router only ever writes to episodic
-            # memory. Semantic memory is built exclusively by a separate,
-            # periodic consolidation pass — see run_consolidation() below.
             return {
                 "action": "promote",
                 "episode": episode,
-                "reason": decision["reason"],
+                "reason": decision["reason"]
             }
 
         return {
             "action": "drop",
-            "reason": decision["reason"],
+            "reason": decision["reason"]
         }
 
     def run_consolidation(self):
-        """
-        Separate, periodic consolidation pass over episodic memory.
-
-        This is the only path that writes to semantic memory. It should
-        be invoked on a schedule (e.g. a periodic job, or at natural
-        session boundaries) rather than after every promoted event, so
-        that consolidation can genuinely batch, version, and resolve
-        conflicts across multiple episodes rather than reacting to one
-        write at a time.
-        """
         return self.consolidation.consolidate()
 
     def recall(self, key):
