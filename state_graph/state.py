@@ -26,4 +26,4 @@ class FlightRecoveryState(TypedDict, total=False):
     ticket_id: str | None
     error: str | None
 
-    checkpoint_id: str | None
+    checkpoint_ref: str | None
