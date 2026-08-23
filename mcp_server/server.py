@@ -1,10 +1,16 @@
 import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from mcp_server.database import initialize_database
-from mcp_server import import_tools
-from mcp_server import import_resources
-from mcp_server import import_prompts
 from mcp_server.mcp_app import mcp
+import mcp_server.import_tools
+import mcp_server.import_resources
+import mcp_server.import_prompts
 
 
 def start_server():
@@ -23,9 +29,8 @@ def start_server():
             port=8000,
         )
     else:
-        print("Blue Horizon MCP Server is running using stdio")
         mcp.run(
-            transport="stdio",
+            transport="stdio"
         )
 
 
