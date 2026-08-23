@@ -519,18 +519,50 @@ from the Memory & RAG agent.
 
 ## A Real Case Where a Single Retry Isn't Enough
 
-`SchedulingAgent.run_reflexion_reassignment` against the seeded database:
-Aircraft 3 is mid-**High**-severity maintenance; Crew 4 is unavailable.
-Four candidates are proposed in order, and it takes all four trials —
-two different real constraints fail before the last candidate clears
-both:
+`SchedulingAgent.run_reflexion_reassignment` was evaluated against the
+seeded operational database for flight `BH218`.
 
-| Trial | Candidate | Grounded result |
-|---|---|---|
-| 1 | Aircraft 3 + Crew 4 | fails — aircraft blocked by maintenance |
-| 2 | Aircraft 3 + Crew 1 | fails — aircraft still blocked by maintenance |
-| 3 | Aircraft 1 + Crew 4 | fails — crew unavailable |
-| 4 | Aircraft 1 + Crew 1 | **succeeds** |
+This case demonstrates why a single retry is insufficient. The environment
+contains two independent operational constraints:
+
+- **Aircraft 3** is in `Maintenance` and cannot be used for reassignment.
+- **Crew 4** is unavailable.
+
+The agent evaluates four candidates sequentially. The first three candidates
+fail for grounded operational reasons, while the fourth candidate satisfies
+all constraints.
+
+| Trial | Candidate | Grounded Result |
+|---:|---|---|
+| 1 | Aircraft 3 + Crew 4 | ❌ Aircraft 3 is in Maintenance; Crew 4 is unavailable |
+| 2 | Aircraft 3 + Crew 1 | ❌ Aircraft 3 is in Maintenance |
+| 3 | Aircraft 1 + Crew 4 | ❌ Crew 4 is unavailable |
+| 4 | Aircraft 1 + Crew 1 | ✅ Valid reassignment |
+
+### Execution Trace
+
+```text
+Trial 1
+Aircraft 3 + Crew 4
+→ FAIL
+→ aircraft 3: status is 'Maintenance', not usable for reassignment
+→ crew 4: not available
+
+Trial 2
+Aircraft 3 + Crew 1
+→ FAIL
+→ aircraft 3: status is 'Maintenance', not usable for reassignment
+
+Trial 3
+Aircraft 1 + Crew 4
+→ FAIL
+→ crew 4: not available
+
+Trial 4
+Aircraft 1 + Crew 1
+→ SUCCESS
+→ score: 1.0
+→ errors: []
 
 Self-Refine's single-revision loop can't express this: `SelfRefiner._revise`
 edits *one* candidate's text, but the whole candidate here needs replacing,
