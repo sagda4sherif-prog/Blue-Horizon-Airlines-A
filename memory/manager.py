@@ -17,19 +17,9 @@ class MemoryManager:
         )
 
     def remember(self, content, metadata=None):
-        overflow = self.short_term.add(content, metadata)
+        metadata = metadata or {}
 
-        if overflow is None:
-            return {
-                "action": "short_term",
-                "content": content,
-                "metadata": metadata or {}
-            }
-
-        decision = self.router.route(
-            overflow["content"],
-            overflow["metadata"]
-        )
+        decision = self.router.route(content, metadata)
 
         if decision["action"] == "promote":
             episode = self.episodic.store(
