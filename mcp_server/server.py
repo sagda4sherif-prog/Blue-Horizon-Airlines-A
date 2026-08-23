@@ -1,12 +1,12 @@
 import os
 import sys
 
-sys.path.insert(
-    0,
-    os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..")
-    )
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..")
 )
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from mcp_server.database import initialize_database
 import mcp_server.import_tools
@@ -31,7 +31,9 @@ def start_server():
             port=8000
         )
     else:
-        mcp.run(transport="stdio")
+        mcp.run(
+            transport="stdio"
+        )
 
 
 if __name__ == "__main__":
