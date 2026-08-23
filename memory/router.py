@@ -10,28 +10,34 @@ class PromoteOrDropRouter:
             }
 
         text = content.lower()
-        event_type = str(metadata.get("event_type", "")).lower()
-        important = metadata.get("important", False)
 
-        operational_events = {
+        operational_keywords = {
             "delay",
             "delayed",
             "cancellation",
             "cancelled",
             "diversion",
             "diverted",
+            "crew change",
             "crew_change",
+            "aircraft change",
             "aircraft_change",
-            "operational_disruption",
+            "assigned aircraft",
+            "aircraft",
+            "maintenance",
+            "disruption",
         }
 
         matched_keywords = [
-            event
-            for event in operational_events
-            if event in text or event in event_type
+            keyword
+            for keyword in operational_keywords
+            if keyword in text
         ]
 
-        if important or matched_keywords:
+        important = metadata.get("important", False)
+        event_type = metadata.get("event_type", "")
+
+        if important or event_type or matched_keywords:
             return {
                 "action": "promote",
                 "content": content,
