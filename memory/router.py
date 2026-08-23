@@ -1,30 +1,38 @@
-from enum import Enum
+class PromoteOrDropRouter:
+    def route(self, content, metadata=None):
+        metadata = metadata or {}
 
-
-class RouteDecision(Enum):
-    EPISODIC = "episodic"
-    DROP = "drop"
-
-
-class MemoryRouter:
-    def __init__(self, episodic_memory):
-        self.episodic_memory = episodic_memory
-
-    def route(self, item):
-        if not item:
-            return RouteDecision.DROP
-
-        content = item.get("content", "")
-        metadata = item.get("metadata", {})
+        if not content or not content.strip():
+            return {
+                "action": "drop",
+                "reason": "empty content"
+            }
 
         important = metadata.get("important", False)
-        has_context = bool(content.strip())
+        event_type = metadata.get("event_type", "")
 
-        if important or has_context:
-            self.episodic_memory.add(
-                content=content,
-                metadata=metadata,
-            )
-            return RouteDecision.EPISODIC
+        operational_events = {
+            "delay",
+            "cancellation",
+            "diversion",
+            "crew_change",
+            "aircraft_change",
+            "operational_disruption",
+        }
 
-        return RouteDecision.DROP
+        if important or event_type in operational_events:
+            return {
+                "action": "promote",
+                "content": content,
+                "metadata": metadata,
+                "reason": "operational or important event"
+            }
+
+        return {
+            "action": "drop",
+            "reason": "irrelevant event"
+        }
+
+
+class PromptsGroupRouter(PromoteOrDropRouter):
+    pass
