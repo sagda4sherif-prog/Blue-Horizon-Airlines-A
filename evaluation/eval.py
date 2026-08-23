@@ -1,110 +1,258 @@
-import time
 import os
 import sys
+import time
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))
+)
+
 sys.path.append(PROJECT_ROOT)
 
 from rag.rag_pipeline import OperationalRAGPipeline
 
 
+TEST_CASES = [
+    {
+        "question": (
+            "What is the standard fasting or reporting window "
+            "before operational flight duties?"
+        ),
+        "keywords": [
+            "fasting",
+            "reporting",
+            "flight duties",
+        ],
+    },
+    {
+        "question": (
+            "What does Protocol 4.2b specify regarding severe "
+            "weather delay protocols?"
+        ),
+        "keywords": [
+            "protocol 4.2b",
+            "severe weather",
+            "delay",
+        ],
+    },
+    {
+        "question": (
+            "For a flight facing both a crew duty-hour limit and "
+            "an aircraft maintenance hold, what steps and approvals "
+            "are required before it can depart?"
+        ),
+        "keywords": [
+            "crew",
+            "duty",
+            "maintenance",
+            "approval",
+        ],
+    },
+]
+
+
+def estimate_tokens(text):
+    words = text.split()
+    return max(1, int(len(words) * 1.3))
+
+
+def keyword_accuracy(question_data, documents):
+    if not documents:
+        return False
+
+    context = " ".join(documents).lower()
+
+    matched = sum(
+        1
+        for keyword in question_data["keywords"]
+        if keyword.lower() in context
+    )
+
+    required = max(
+        1,
+        len(question_data["keywords"]) // 2
+    )
+
+    return matched >= required
+
+
 def run_retrieval_evaluation():
-    print("\n" + "=" * 60)
-    print("📊 BLUE HORIZON AIRLINES - RAG ARCHITECTURES EVALUATION")
-    print("=" * 60)
+    print("\n" + "=" * 70)
+    print("BLUE HORIZON AIRLINES - RAG EVALUATION")
+    print("=" * 70)
 
     try:
         rag = OperationalRAGPipeline()
-    except Exception as e:
-        print(f"Error initializing RAG Pipeline: {e}")
+    except Exception as error:
+        print(
+            f"Error initializing RAG Pipeline: {error}"
+        )
         return
 
-    # One question per required category so the comparison table actually
-    # exercises the case each architecture is supposed to win on:
-    #   - general: naive vector search should do fine
-    #   - citation-heavy: exact identifiers should favor hybrid (BM25) search
-    #   - multi-part/decomposition: should favor agentic RAG's multi-hop retrieval
-    test_questions = [
-        "What is the standard fasting or reporting window before operational flight duties?",
-        "What does Protocol 4.2b specify regarding severe weather delay protocols?",
-        "For a flight facing both a crew duty-hour limit and an aircraft maintenance "
-        "hold, what steps and approvals are required before it can depart?",
-    ]
-
-    print(f"Loaded {len(test_questions)} domain-specific test cases.\n")
-
-    def estimate_tokens(text: str) -> int:
-        """
-        Lightweight, dependency-free token estimate (~1.3 tokens/word),
-        applied to whatever text was actually sent to/retrieved by the
-        pipeline for this call, rather than a fixed placeholder number.
-        """
-        words = text.split()
-        return max(1, int(len(words) * 1.3))
-
     metrics = {
-        "Naive RAG": {"correct": 0, "total_latency": 0.0, "total_tokens": 0, "queries": len(test_questions)},
-        "Hybrid Search": {"correct": 0, "total_latency": 0.0, "total_tokens": 0, "queries": len(test_questions)},
-        "Agentic RAG": {"correct": 0, "total_latency": 0.0, "total_tokens": 0, "queries": len(test_questions)},
+        "Naive RAG": {
+            "correct": 0,
+            "latency": 0.0,
+            "tokens": 0,
+        },
+        "Hybrid Search": {
+            "correct": 0,
+            "latency": 0.0,
+            "tokens": 0,
+        },
+        "Agentic RAG": {
+            "correct": 0,
+            "latency": 0.0,
+            "tokens": 0,
+        },
     }
 
-    for i, q in enumerate(test_questions, 1):
-        print(f"Testing Question {i}: '{q}'")
+    total_questions = len(TEST_CASES)
 
-        t0 = time.time()
-        naive_docs = rag.naive_rag(q, top_k=3)
-        t_naive = time.time() - t0
-        naive_passed = rag.self_rag_verification(q, naive_docs)
+    for index, test_case in enumerate(TEST_CASES, 1):
+        question = test_case["question"]
 
-        metrics["Naive RAG"]["total_latency"] += t_naive
-        metrics["Naive RAG"]["total_tokens"] += estimate_tokens(q + " " + " ".join(naive_docs))
-        if naive_passed:
-            metrics["Naive RAG"]["correct"] += 1
-
-        time.sleep(3)
-
-        t0 = time.time()
-        hybrid_docs = rag.hybrid_search(q, top_k=3)
-        t_hybrid = time.time() - t0
-        hybrid_passed = rag.self_rag_verification(q, hybrid_docs)
-
-        metrics["Hybrid Search"]["total_latency"] += t_hybrid
-        metrics["Hybrid Search"]["total_tokens"] += estimate_tokens(q + " " + " ".join(hybrid_docs))
-        if hybrid_passed:
-            metrics["Hybrid Search"]["correct"] += 1
-
-        time.sleep(3)
-
-        t0 = time.time()
-        agentic_docs = rag.agentic_rag(q)
-        t_agentic = time.time() - t0
-        agentic_passed = rag.self_rag_verification(q, agentic_docs)
-
-        metrics["Agentic RAG"]["total_latency"] += t_agentic
-        # Agentic RAG also spends tokens on the critique/refinement call itself,
-        # not just the final retrieved docs, so include the query twice to
-        # roughly account for the extra LLM round-trip.
-        metrics["Agentic RAG"]["total_tokens"] += estimate_tokens(
-            q + " " + q + " " + " ".join(agentic_docs)
+        print(
+            f"\nQuestion {index}/{total_questions}:"
         )
-        if agentic_passed:
-            metrics["Agentic RAG"]["correct"] += 1
+        print(question)
 
-        time.sleep(5)
+        start = time.perf_counter()
 
-    print("\n" + "=" * 60)
-    print("📈 EVALUATION COMPARISON RESULTS (For README Table)")
-    print("=" * 60)
-    print(f"{'Architecture':<20} | {'Accuracy':<10} | {'Avg Latency (s)':<15} | {'Avg Tokens (Est)'}")
-    print("-" * 65)
+        naive_docs = rag.naive_rag(
+            question,
+            top_k=3,
+        )
 
-    for arch, data in metrics.items():
-        q_count = data['queries']
-        acc_str = f"{data['correct']}/{q_count}"
-        avg_lat = (data['total_latency'] / q_count) if q_count > 0 else 0.0
-        avg_tokens = (data['total_tokens'] / q_count) if q_count > 0 else 0
-        print(f"{arch:<20} | {acc_str:<10} | {avg_lat:<15.2f} | {avg_tokens:.0f}")
-    print("=" * 60)
+        naive_latency = (
+            time.perf_counter() - start
+        )
+
+        naive_correct = keyword_accuracy(
+            test_case,
+            naive_docs,
+        )
+
+        metrics["Naive RAG"]["correct"] += int(
+            naive_correct
+        )
+
+        metrics["Naive RAG"]["latency"] += (
+            naive_latency
+        )
+
+        metrics["Naive RAG"]["tokens"] += (
+            estimate_tokens(
+                question
+                + " "
+                + " ".join(naive_docs)
+            )
+        )
+
+        start = time.perf_counter()
+
+        hybrid_docs = rag.hybrid_search(
+            question,
+            top_k=3,
+        )
+
+        hybrid_latency = (
+            time.perf_counter() - start
+        )
+
+        hybrid_correct = keyword_accuracy(
+            test_case,
+            hybrid_docs,
+        )
+
+        metrics["Hybrid Search"]["correct"] += int(
+            hybrid_correct
+        )
+
+        metrics["Hybrid Search"]["latency"] += (
+            hybrid_latency
+        )
+
+        metrics["Hybrid Search"]["tokens"] += (
+            estimate_tokens(
+                question
+                + " "
+                + " ".join(hybrid_docs)
+            )
+        )
+
+        start = time.perf_counter()
+
+        agentic_docs = rag.agentic_rag(
+            question
+        )
+
+        agentic_latency = (
+            time.perf_counter() - start
+        )
+
+        agentic_correct = keyword_accuracy(
+            test_case,
+            agentic_docs,
+        )
+
+        metrics["Agentic RAG"]["correct"] += int(
+            agentic_correct
+        )
+
+        metrics["Agentic RAG"]["latency"] += (
+            agentic_latency
+        )
+
+        metrics["Agentic RAG"]["tokens"] += (
+            estimate_tokens(
+                question
+                + " "
+                + " ".join(agentic_docs)
+                + " "
+                + question
+            )
+        )
+
+    print("\n" + "=" * 70)
+    print("RAG ARCHITECTURE COMPARISON")
+    print("=" * 70)
+
+    print(
+        f"{'Architecture':<20}"
+        f"| {'Accuracy':<12}"
+        f"| {'Avg Latency':<15}"
+        f"| {'Avg Tokens':<12}"
+    )
+
+    print("-" * 70)
+
+    for architecture, data in metrics.items():
+        accuracy = (
+            data["correct"] / total_questions
+            if total_questions
+            else 0
+        )
+
+        avg_latency = (
+            data["latency"] / total_questions
+            if total_questions
+            else 0
+        )
+
+        avg_tokens = (
+            data["tokens"] / total_questions
+            if total_questions
+            else 0
+        )
+
+        print(
+            f"{architecture:<20}"
+            f"| {accuracy:.2%}      "
+            f"| {avg_latency:.3f}s"
+            f"        | {avg_tokens:.0f}"
+        )
+
+    print("=" * 70)
 
 
 if __name__ == "__main__":
