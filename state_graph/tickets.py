@@ -1,119 +1,140 @@
-from datetime import datetime, timezone
-from pathlib import Path
-import json
+from __future__ import annotations
+
 import sqlite3
 import uuid
-
-from .state import FlightRecoveryState
+from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = PROJECT_ROOT / "db" / "blue_horizon.db"
+TICKETS_DB = PROJECT_ROOT / "db" / "state_graph_tickets.db"
 
 
-def get_connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+class TicketManager:
+    def __init__(self, database_path: str | Path = TICKETS_DB):
+        self.database_path = Path(database_path)
+        self.database_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        self._initialize()
 
+    def _connect(self):
+        return sqlite3.connect(str(self.database_path))
 
-def ensure_ticket_table() -> None:
-    with get_connection() as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS recovery_tickets (
-                ticket_id TEXT PRIMARY KEY,
-                run_id TEXT NOT NULL,
-                node_name TEXT NOT NULL,
-                error TEXT NOT NULL,
-                state_json TEXT NOT NULL,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                resolved_at TEXT
+    def _initialize(self):
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tickets (
+                    ticket_id TEXT PRIMARY KEY,
+                    flight_id INTEGER,
+                    error_type TEXT NOT NULL,
+                    error_message TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'open',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TIMESTAMP
+                )
+                """
             )
-            """
-        )
-        connection.commit()
+            connection.commit()
 
+    def create_ticket(
+        self,
+        flight_id: int | None,
+        error_type: str,
+        error_message: str,
+    ) -> str:
+        ticket_id = f"TKT-{uuid.uuid4().hex[:8].upper()}"
 
-def create_ticket(
-    state: FlightRecoveryState,
-    node_name: str,
-    error: str,
-) -> str:
-    ensure_ticket_table()
-
-    ticket_id = str(uuid.uuid4())
-    created_at = datetime.now(timezone.utc).isoformat()
-
-    with get_connection() as connection:
-        connection.execute(
-            """
-            INSERT INTO recovery_tickets (
-                ticket_id,
-                run_id,
-                node_name,
-                error,
-                state_json,
-                status,
-                created_at
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO tickets (
+                    ticket_id,
+                    flight_id,
+                    error_type,
+                    error_message,
+                    status
+                )
+                VALUES (?, ?, ?, ?, 'open')
+                """,
+                (
+                    ticket_id,
+                    flight_id,
+                    error_type,
+                    error_message,
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                ticket_id,
-                state["run_id"],
-                node_name,
-                error,
-                json.dumps(dict(state), default=str),
-                "open",
-                created_at,
-            ),
-        )
-        connection.commit()
+            connection.commit()
 
-    return ticket_id
+        return ticket_id
 
+    def update_status(
+        self,
+        ticket_id: str,
+        status: str,
+    ):
+        allowed_statuses = {
+            "open",
+            "investigating",
+            "resolved",
+        }
 
-def resolve_ticket(ticket_id: str) -> bool:
-    ensure_ticket_table()
+        if status not in allowed_statuses:
+            raise ValueError(
+                f"Invalid ticket status: {status}"
+            )
 
-    resolved_at = datetime.now(timezone.utc).isoformat()
+        with self._connect() as connection:
+            if status == "resolved":
+                connection.execute(
+                    """
+                    UPDATE tickets
+                    SET status = ?,
+                        resolved_at = CURRENT_TIMESTAMP
+                    WHERE ticket_id = ?
+                    """,
+                    (status, ticket_id),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE tickets
+                    SET status = ?,
+                        resolved_at = NULL
+                    WHERE ticket_id = ?
+                    """,
+                    (status, ticket_id),
+                )
 
-    with get_connection() as connection:
-        cursor = connection.execute(
-            """
-            UPDATE recovery_tickets
-            SET
-                status = 'resolved',
-                resolved_at = ?
-            WHERE ticket_id = ?
-              AND status != 'resolved'
-            """,
-            (
-                resolved_at,
-                ticket_id,
-            ),
-        )
-        connection.commit()
+            connection.commit()
 
-        return cursor.rowcount == 1
+    def get_ticket(self, ticket_id: str):
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
 
+            row = connection.execute(
+                """
+                SELECT *
+                FROM tickets
+                WHERE ticket_id = ?
+                """,
+                (ticket_id,),
+            ).fetchone()
 
-def get_ticket(ticket_id: str) -> dict | None:
-    ensure_ticket_table()
+        return dict(row) if row else None
 
-    with get_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT *
-            FROM recovery_tickets
-            WHERE ticket_id = ?
-            """,
-            (ticket_id,),
-        ).fetchone()
+    def list_open_tickets(self):
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
 
-    if row is None:
-        return None
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM tickets
+                WHERE status != 'resolved'
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
 
-    return dict(row)
+        return [dict(row) for row in rows]
