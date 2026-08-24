@@ -29,3 +29,7 @@ pytest
 fastapi
 uvicorn[standard]
 anthropic
+
+# state/ — LangGraph workflows and durable SQLite checkpointing
+langgraph==1.2.11
+langgraph-checkpoint-sqlite==3.1.1

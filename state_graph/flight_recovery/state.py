@@ -1,5 +1,7 @@
 from typing import Any, TypedDict
 
+GRAPH_NAME = "flight_recovery"
+
 
 class FlightRecoveryState(TypedDict, total=False):
     run_id: str
@@ -20,10 +22,10 @@ class FlightRecoveryState(TypedDict, total=False):
     current_node: str
 
     hitl_required: bool
-    hitl_request_id: str | None
+    hitl_request_id: int | None
     hitl_decision: str | None
 
-    ticket_id: str | None
+    ticket_id: int | None
     error: str | None
 
     checkpoint_ref: str | None
