@@ -1,46 +1,98 @@
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
 class CompensationState:
-    flight_id: Optional[int] = None
-    passenger_id: Optional[int] = None
-    cancellation_reason: str = ""
-    compensation_amount: float = 0.0
+    flight_id: int
+    passenger_id: int
+    cancellation_reason: str
 
-    policy_context: list[str] = field(default_factory=list)
-    eligibility: Optional[bool] = None
+    compensation_amount: float = 0.0
+    policy_context: str = ""
 
     status: str = "pending"
+    approved: bool = False
 
-    requires_hitl: bool = False
-    hitl_decision: Optional[str] = None
-
-    ticket_id: Optional[str] = None
-    error: Optional[str] = None
+    error: str | None = None
+    ticket_id: str | None = None
 
     current_node: str = "start"
-    completed_nodes: list[str] = field(default_factory=list)
 
-    def mark_completed(self, node_name: str):
-        if node_name not in self.completed_nodes:
-            self.completed_nodes.append(node_name)
+    metadata: dict[str, Any] | None = None
 
-    def fail(self, message: str):
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
+
+    def fail(self, error: str):
+        self.error = error
         self.status = "failed"
-        self.error = message
+        self.current_node = "error"
 
-    def pause_for_hitl(self):
+    def wait_for_approval(self):
         self.status = "waiting_for_approval"
-        self.requires_hitl = True
+        self.current_node = "hitl"
 
     def approve(self):
-        self.hitl_decision = "approved"
-        self.requires_hitl = False
+        self.approved = True
         self.status = "approved"
+        self.current_node = "approval"
 
     def reject(self):
-        self.hitl_decision = "rejected"
-        self.requires_hitl = False
+        self.approved = False
         self.status = "rejected"
+        self.current_node = "approval"
+
+    def complete(self):
+        self.status = "completed"
+        self.current_node = "completed"
+
+    def to_dict(self):
+        return {
+            "flight_id": self.flight_id,
+            "passenger_id": self.passenger_id,
+            "cancellation_reason": self.cancellation_reason,
+            "compensation_amount": self.compensation_amount,
+            "policy_context": self.policy_context,
+            "status": self.status,
+            "approved": self.approved,
+            "error": self.error,
+            "ticket_id": self.ticket_id,
+            "current_node": self.current_node,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            flight_id=data["flight_id"],
+            passenger_id=data["passenger_id"],
+            cancellation_reason=data["cancellation_reason"],
+            compensation_amount=data.get(
+                "compensation_amount",
+                0.0,
+            ),
+            policy_context=data.get(
+                "policy_context",
+                "",
+            ),
+            status=data.get(
+                "status",
+                "pending",
+            ),
+            approved=data.get(
+                "approved",
+                False,
+            ),
+            error=data.get("error"),
+            ticket_id=data.get("ticket_id"),
+            current_node=data.get(
+                "current_node",
+                "start",
+            ),
+            metadata=data.get(
+                "metadata",
+                {},
+            ),
+        )
