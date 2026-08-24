@@ -14,10 +14,14 @@ class CompensationState:
     status: str = "pending"
     approved: bool = False
 
+    requires_hitl: bool = False
+    hitl_decision: str | None = None
+
     error: str | None = None
     ticket_id: str | None = None
 
     current_node: str = "start"
+    completed_nodes: list[str] | None = None
 
     metadata: dict[str, Any] | None = None
 
@@ -25,22 +29,31 @@ class CompensationState:
         if self.metadata is None:
             self.metadata = {}
 
+        if self.completed_nodes is None:
+            self.completed_nodes = []
+
+    def mark_completed(self, node_name: str):
+        if node_name not in self.completed_nodes:
+            self.completed_nodes.append(node_name)
+
     def fail(self, error: str):
         self.error = error
         self.status = "failed"
         self.current_node = "error"
 
-    def wait_for_approval(self):
+    def pause_for_hitl(self):
         self.status = "waiting_for_approval"
         self.current_node = "hitl"
 
     def approve(self):
         self.approved = True
+        self.hitl_decision = "approved"
         self.status = "approved"
         self.current_node = "approval"
 
     def reject(self):
         self.approved = False
+        self.hitl_decision = "rejected"
         self.status = "rejected"
         self.current_node = "approval"
 
@@ -57,9 +70,12 @@ class CompensationState:
             "policy_context": self.policy_context,
             "status": self.status,
             "approved": self.approved,
+            "requires_hitl": self.requires_hitl,
+            "hitl_decision": self.hitl_decision,
             "error": self.error,
             "ticket_id": self.ticket_id,
             "current_node": self.current_node,
+            "completed_nodes": self.completed_nodes,
             "metadata": self.metadata,
         }
 
@@ -69,30 +85,15 @@ class CompensationState:
             flight_id=data["flight_id"],
             passenger_id=data["passenger_id"],
             cancellation_reason=data["cancellation_reason"],
-            compensation_amount=data.get(
-                "compensation_amount",
-                0.0,
-            ),
-            policy_context=data.get(
-                "policy_context",
-                "",
-            ),
-            status=data.get(
-                "status",
-                "pending",
-            ),
-            approved=data.get(
-                "approved",
-                False,
-            ),
+            compensation_amount=data.get("compensation_amount", 0.0),
+            policy_context=data.get("policy_context", ""),
+            status=data.get("status", "pending"),
+            approved=data.get("approved", False),
+            requires_hitl=data.get("requires_hitl", False),
+            hitl_decision=data.get("hitl_decision"),
             error=data.get("error"),
             ticket_id=data.get("ticket_id"),
-            current_node=data.get(
-                "current_node",
-                "start",
-            ),
-            metadata=data.get(
-                "metadata",
-                {},
-            ),
+            current_node=data.get("current_node", "start"),
+            completed_nodes=data.get("completed_nodes", []),
+            metadata=data.get("metadata", {}),
         )
