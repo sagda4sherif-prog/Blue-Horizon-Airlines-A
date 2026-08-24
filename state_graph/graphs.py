@@ -1,121 +1,124 @@
-from langgraph.graph import END, START, StateGraph
-
-from .nodes import (
-    analyze_disruption,
-    apply_admin_decision,
-    evaluate_recovery,
-    execute_recovery,
-    initialize_recovery,
-    request_admin_approval,
+from state_graph.compensation_nodes import (
+    validate_request,
+    calculate_compensation,
+    retrieve_compensation_policy,
+    request_hitl_approval,
+    apply_decision,
 )
-from .state import FlightRecoveryState
+from state_graph.compensation_state import CompensationState
+from state_graph.checkpoint import CompensationCheckpoint
+from state_graph.tickets import TicketManager
 
 
-def route_after_evaluation(
-    state: FlightRecoveryState,
-) -> str:
-    if state.get("hitl_required"):
-        return "request_admin_approval"
+class CompensationGraph:
+    def __init__(self, rag_pipeline=None):
+        self.rag_pipeline = rag_pipeline
+        self.checkpoint = CompensationCheckpoint()
+        self.tickets = TicketManager()
 
-    return "execute_recovery"
+    def run(
+        self,
+        state: CompensationState,
+    ) -> CompensationState:
 
+        try:
+            state = validate_request(state)
+            self.checkpoint.save(state)
 
-def route_after_approval(
-    state: FlightRecoveryState,
-) -> str:
-    if state.get("hitl_decision") is None:
-        return END
+            if state.status == "failed":
+                return self._create_failure_ticket(state)
 
-    return "apply_admin_decision"
+            state = calculate_compensation(state)
+            self.checkpoint.save(state)
 
+            if state.status == "failed":
+                return self._create_failure_ticket(state)
 
-def route_after_decision(
-    state: FlightRecoveryState,
-) -> str:
-    if state.get("status") == "rejected":
-        return END
+            state = retrieve_compensation_policy(
+                state,
+                self.rag_pipeline,
+            )
+            self.checkpoint.save(state)
 
-    return "execute_recovery"
+            if state.status == "failed":
+                return self._create_failure_ticket(state)
 
+            state = request_hitl_approval(state)
+            self.checkpoint.save(state)
 
-def build_flight_recovery_graph():
-    graph = StateGraph(FlightRecoveryState)
+            if state.status == "waiting_for_approval":
+                return state
 
-    graph.add_node(
-        "initialize_recovery",
-        initialize_recovery,
-    )
+            state = apply_decision(state)
+            self.checkpoint.save(state)
 
-    graph.add_node(
-        "analyze_disruption",
-        analyze_disruption,
-    )
+            if state.status == "failed":
+                return self._create_failure_ticket(state)
 
-    graph.add_node(
-        "evaluate_recovery",
-        evaluate_recovery,
-    )
+            return state
 
-    graph.add_node(
-        "request_admin_approval",
-        request_admin_approval,
-    )
+        except Exception as exc:
+            state.fail(str(exc))
+            return self._create_failure_ticket(state)
 
-    graph.add_node(
-        "apply_admin_decision",
-        apply_admin_decision,
-    )
+    def resume(
+        self,
+        flight_id: int,
+    ) -> CompensationState | None:
 
-    graph.add_node(
-        "execute_recovery",
-        execute_recovery,
-    )
+        state = self.checkpoint.load_latest(flight_id)
 
-    graph.add_edge(
-        START,
-        "initialize_recovery",
-    )
+        if state is None:
+            return None
 
-    graph.add_edge(
-        "initialize_recovery",
-        "analyze_disruption",
-    )
+        if state.status == "waiting_for_approval":
+            return state
 
-    graph.add_edge(
-        "analyze_disruption",
-        "evaluate_recovery",
-    )
+        return self.run(state)
 
-    graph.add_conditional_edges(
-        "evaluate_recovery",
-        route_after_evaluation,
-        {
-            "request_admin_approval": "request_admin_approval",
-            "execute_recovery": "execute_recovery",
-        },
-    )
+    def approve(
+        self,
+        flight_id: int,
+    ) -> CompensationState | None:
 
-    graph.add_conditional_edges(
-        "request_admin_approval",
-        route_after_approval,
-        {
-            "apply_admin_decision": "apply_admin_decision",
-            END: END,
-        },
-    )
+        state = self.checkpoint.load_latest(flight_id)
 
-    graph.add_conditional_edges(
-        "apply_admin_decision",
-        route_after_decision,
-        {
-            "execute_recovery": "execute_recovery",
-            END: END,
-        },
-    )
+        if state is None:
+            return None
 
-    graph.add_edge(
-        "execute_recovery",
-        END,
-    )
+        state.approve()
+        self.checkpoint.save(state)
 
-    return graph.compile()
+        return self.run(state)
+
+    def reject(
+        self,
+        flight_id: int,
+    ) -> CompensationState | None:
+
+        state = self.checkpoint.load_latest(flight_id)
+
+        if state is None:
+            return None
+
+        state.reject()
+        self.checkpoint.save(state)
+
+        return state
+
+    def _create_failure_ticket(
+        self,
+        state: CompensationState,
+    ) -> CompensationState:
+
+        if state.ticket_id is None:
+            state.ticket_id = self.tickets.create_ticket(
+                flight_id=state.flight_id,
+                error_type="GRAPH_EXECUTION_ERROR",
+                error_message=state.error or "Unknown graph error",
+            )
+
+        state.status = "failed"
+        self.checkpoint.save(state)
+
+        return state
