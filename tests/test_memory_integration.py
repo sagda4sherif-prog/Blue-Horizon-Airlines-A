@@ -24,7 +24,6 @@ from memory.test_memory import (  # noqa: F401
     test_semantic_versioning,
     test_conflict_resolution,
     test_memory_expiration,
-    test_semantic_expiration,
     test_full_memory_flow,
 )
 
