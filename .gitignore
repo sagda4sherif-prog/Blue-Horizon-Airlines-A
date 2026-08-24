@@ -13,3 +13,6 @@ env/
 
 # Vector database
 vector_db/
+
+# State graph runtime database
+db/state_graph_checkpoints.db

@@ -1,7 +1,7 @@
-from state_graph.runner import run_flight_recovery
+from state_graph.flight_recovery.runner import run_flight_recovery
 
 
-def test_low_severity_recovery():
+def test_low_severity_completes_without_hitl():
     result = run_flight_recovery(
         flight_id=1,
         event_type="delay",
@@ -11,9 +11,10 @@ def test_low_severity_recovery():
 
     assert result["status"] == "completed"
     assert result["current_node"] == "execute_recovery"
+    assert result["hitl_required"] is False
 
 
-def test_high_severity_requires_hitl():
+def test_high_severity_pauses_for_admin():
     result = run_flight_recovery(
         flight_id=1,
         event_type="cancellation",
