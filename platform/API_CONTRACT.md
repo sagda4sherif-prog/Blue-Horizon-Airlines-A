@@ -102,22 +102,15 @@ decision = get_hitl_decision(hitl_id)
 use it for anything beyond a plain yes/no (e.g. an approved amount that
 differs from what the graph proposed).
 
-## RAG documents (Person 2)
+## RAG documents (Person 2) — implemented, no action needed
 
-The admin RAG page already writes to a `RagDocuments` table and calls
 `OperationalRAGPipeline.add_document(title, content)` /
-`.remove_document(title)` **if they exist**. They don't yet. Add them to
-`rag/rag_pipeline.py` with these exact names and signatures and the
-admin page will start actually re-indexing on the next request — no
-platform-side changes needed:
-
-```python
-def add_document(self, title: str, content: str) -> None:
-    ...  # chunk `content`, add to self.vector_store, update bm25_index
-
-def remove_document(self, title: str) -> None:
-    ...  # remove matching chunks from self.vector_store / bm25_index
-```
+`.remove_document(title)` are implemented in `rag/rag_pipeline.py`.
+Both update the live Chroma vector store, the BM25 index, and the
+in-memory chunk caches, so a document added or removed from the admin
+RAG page is reflected in `hybrid_search`/`naive_rag` on the very next
+query — not just saved to the `RagDocuments` table. `routers/rag.py`'s
+`indexed` / `removed_from_index` flags should read `true` now.
 
 ## Tool registry (Person 1) — already wired, no action needed
 
@@ -126,12 +119,21 @@ def remove_document(self, title: str) -> None:
 `mcp_server/tools.py` today. Nothing to change here unless the registry's
 public method names change.
 
-## Chat / agent switching
+## Chat / agent switching — implemented, no action needed
 
-`platform/backend/chat_engine.py` currently exposes two working agents
-(`operations`, general MCP tool-calling; `rag`, policy Q&A) and one
-placeholder (`graph`, marked `available: false`). Once your three
-state-graph agents have a callable entrypoint (a function that takes a
-user message + run_id and returns a reply, or resumes a paused run),
-tell Person 4 — wiring a new agent into `chat_engine.run_turn()` and
-flipping its `available` flag in `list_agents()` is a small change.
+`platform/backend/chat_engine.py` now exposes three working agents:
+`operations` (general MCP tool-calling), `rag` (policy Q&A), and
+`graph`. The `graph` agent uses Claude tool-calling over four tools —
+`start_flight_recovery`, `start_crew_reassignment`,
+`start_flight_compensation`, `check_run_status` — that call each
+graph's real `run_*()` function from `state_graph/*/runner.py` and
+`shared/checkpoint.load_latest_checkpoint`, so starting or checking a
+run from the chat UI is a real `graph.invoke()` / checkpoint read, not
+a simulation.
+
+Known limitation, by design: this chat agent can start a run and
+check its status, but it cannot resume a paused run — a run that
+pauses for HITL only moves forward once an admin acts on it from
+`/admin/hitl` (that's what polls/advances the underlying run today).
+The agent's system prompt tells the user this explicitly instead of
+pretending to move a paused run forward.
