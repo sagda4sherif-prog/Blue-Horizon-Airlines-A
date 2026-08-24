@@ -1,96 +1,88 @@
+from __future__ import annotations
+
 import json
 import sqlite3
-from datetime import datetime, timezone
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+
+from state_graph.compensation_state import CompensationState
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = PROJECT_ROOT / "db" / "blue_horizon.db"
+CHECKPOINT_DB = PROJECT_ROOT / "db" / "state_graph_checkpoints.db"
 
 
-def get_connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+class CompensationCheckpoint:
+    def __init__(
+        self,
+        database_path: str | Path = CHECKPOINT_DB,
+    ):
+        self.database_path = Path(database_path)
+        self.database_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
+        self._initialize()
 
-def ensure_checkpoint_table() -> None:
-    with get_connection() as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS state_checkpoints (
-                checkpoint_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id TEXT NOT NULL,
-                node_name TEXT NOT NULL,
-                state_json TEXT NOT NULL,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL
+    def _connect(self):
+        return sqlite3.connect(str(self.database_path))
+
+    def _initialize(self):
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compensation_checkpoints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    flight_id INTEGER,
+                    current_node TEXT NOT NULL,
+                    state_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
             )
-            """
+            connection.commit()
+
+    def save(self, state: CompensationState):
+        payload = json.dumps(
+            asdict(state),
+            ensure_ascii=False,
         )
-        connection.commit()
 
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO compensation_checkpoints
+                (flight_id, current_node, state_json)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    state.flight_id,
+                    state.current_node,
+                    payload,
+                ),
+            )
+            connection.commit()
 
-def save_checkpoint(
-    run_id: str,
-    node_name: str,
-    state: dict[str, Any],
-    status: str = "active",
-) -> int:
-    ensure_checkpoint_table()
+    def load_latest(
+        self,
+        flight_id: int,
+    ) -> CompensationState | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT state_json
+                FROM compensation_checkpoints
+                WHERE flight_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (flight_id,),
+            ).fetchone()
 
-    created_at = datetime.now(timezone.utc).isoformat()
+        if row is None:
+            return None
 
-    with get_connection() as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO state_checkpoints
-            (run_id, node_name, state_json, status, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                run_id,
-                node_name,
-                json.dumps(state, default=str),
-                status,
-                created_at,
-            ),
-        )
-        connection.commit()
+        data = json.loads(row[0])
 
-        return int(cursor.lastrowid)
-
-
-def load_latest_checkpoint(run_id: str) -> dict[str, Any] | None:
-    ensure_checkpoint_table()
-
-    with get_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT
-                checkpoint_id,
-                run_id,
-                node_name,
-                state_json,
-                status,
-                created_at
-            FROM state_checkpoints
-            WHERE run_id = ?
-            ORDER BY checkpoint_id DESC
-            LIMIT 1
-            """,
-            (run_id,),
-        ).fetchone()
-
-    if row is None:
-        return None
-
-    return {
-        "checkpoint_id": row["checkpoint_id"],
-        "run_id": row["run_id"],
-        "node_name": row["node_name"],
-        "state": json.loads(row["state_json"]),
-        "status": row["status"],
-        "created_at": row["created_at"],
-    }
+        return CompensationState(**data)
