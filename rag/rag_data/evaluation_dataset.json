@@ -1,0 +1,27 @@
+[
+  {
+    "query": "What is the standard fasting or reporting window before operational flight duties?",
+    "relevant_documents": [
+      "fasting",
+      "reporting",
+      "flight duties"
+    ]
+  },
+  {
+    "query": "What does Protocol 4.2b specify regarding severe weather delay protocols?",
+    "relevant_documents": [
+      "Protocol 4.2b",
+      "severe weather",
+      "delay"
+    ]
+  },
+  {
+    "query": "For a flight facing both a crew duty-hour limit and an aircraft maintenance hold, what steps and approvals are required before it can depart?",
+    "relevant_documents": [
+      "crew",
+      "duty",
+      "maintenance",
+      "approval"
+    ]
+  }
+]
