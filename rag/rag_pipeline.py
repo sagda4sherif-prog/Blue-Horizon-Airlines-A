@@ -1,4 +1,5 @@
 import os
+import uuid
 import warnings
 
 from dotenv import load_dotenv
@@ -46,6 +47,7 @@ class OperationalRAGPipeline:
         self.vector_store = None
         self.documents_cache = []
         self.metadata_cache = []
+        self.chunk_ids = []  # parallel to documents_cache/metadata_cache
         self.metadata_index = {}
         self.bm25_index = None
         self.llm = None
@@ -97,6 +99,7 @@ class OperationalRAGPipeline:
             metadata = document.metadata or {}
 
             metadata["source"] = os.path.basename(self.file_path)
+            metadata.setdefault("title", metadata["source"])
             metadata["chunk_id"] = index
 
             document.metadata = metadata
@@ -124,12 +127,10 @@ class OperationalRAGPipeline:
             for document in chunks
         ]
 
-        tokenized_corpus = [
-            document.split()
-            for document in self.documents_cache
+        base_ids = [
+            f"seed::{os.path.basename(self.file_path)}::{index}"
+            for index in range(len(chunks))
         ]
-
-        self.bm25_index = BM25Okapi(tokenized_corpus)
 
         existing_store = (
             os.path.exists(self.persist_directory)
@@ -164,14 +165,45 @@ class OperationalRAGPipeline:
                     documents=chunks,
                     embedding=self.embeddings,
                     persist_directory=self.persist_directory,
+                    ids=base_ids,
                 )
+
+                self.chunk_ids = list(base_ids)
+            else:
+                # Re-hydrate our in-memory caches (documents_cache,
+                # metadata_cache, chunk_ids) from whatever is ALREADY in
+                # the persisted vector store, not just the seed file —
+                # this is what lets add_document/remove_document survive
+                # a process restart instead of resetting to the seed
+                # corpus every time the pipeline is constructed.
+                existing_ids = existing_data.get("ids", [])
+                existing_documents = existing_data.get("documents", [])
+
+                self.documents_cache = list(existing_documents)
+                self.metadata_cache = [dict(m or {}) for m in existing_metadatas]
+                self.chunk_ids = list(existing_ids)
 
         else:
             self.vector_store = Chroma.from_documents(
                 documents=chunks,
                 embedding=self.embeddings,
                 persist_directory=self.persist_directory,
+                ids=base_ids,
             )
+
+            self.chunk_ids = list(base_ids)
+
+        self._rebuild_bm25_index()
+
+    def _rebuild_bm25_index(self):
+        tokenized_corpus = [
+            document.split()
+            for document in self.documents_cache
+        ]
+
+        self.bm25_index = (
+            BM25Okapi(tokenized_corpus) if tokenized_corpus else None
+        )
 
     def _get_llm(self):
         if self.llm is None:
@@ -254,8 +286,10 @@ class OperationalRAGPipeline:
 
         tokenized_query = query.split()
 
-        bm25_scores = self.bm25_index.get_scores(
-            tokenized_query
+        bm25_scores = (
+            self.bm25_index.get_scores(tokenized_query)
+            if self.bm25_index is not None
+            else [0.0] * len(self.documents_cache)
         )
 
         candidate_indices = list(range(len(bm25_scores)))
@@ -417,6 +451,86 @@ class OperationalRAGPipeline:
             )
 
             return False
+
+    def _rebuild_metadata_index(self):
+        self.metadata_index = {}
+
+        for index, metadata in enumerate(self.metadata_cache):
+            metadata["chunk_id"] = index
+
+            for key, value in metadata.items():
+                self.metadata_index.setdefault(key, {})
+                self.metadata_index[key].setdefault(str(value), set())
+                self.metadata_index[key][str(value)].add(index)
+
+    def add_document(self, title: str, content: str) -> None:
+        """Chunk `content`, add it to the live vector store and BM25
+        index, so it shows up in hybrid_search/naive_rag on the very
+        next query — this is what the admin panel's "add document"
+        action needs in order to actually reach retrieval instead of
+        only being durably saved in the RagDocuments table."""
+
+        if not content or not content.strip():
+            raise ValueError("Document content must not be empty.")
+
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=400,
+            chunk_overlap=60,
+        )
+
+        raw_chunks = splitter.split_text(content)
+
+        if not raw_chunks:
+            raise ValueError("Document produced no chunks to index.")
+
+        new_ids = [f"doc::{title}::{uuid.uuid4().hex}" for _ in raw_chunks]
+        new_metadatas = [
+            {"source": title, "title": title, "chunk_id": None}
+            for _ in raw_chunks
+        ]
+
+        self.vector_store.add_texts(
+            texts=raw_chunks,
+            metadatas=new_metadatas,
+            ids=new_ids,
+        )
+
+        self.documents_cache.extend(raw_chunks)
+        self.metadata_cache.extend(new_metadatas)
+        self.chunk_ids.extend(new_ids)
+
+        self._rebuild_metadata_index()
+        self._rebuild_bm25_index()
+
+    def remove_document(self, title: str) -> None:
+        """Remove every chunk whose `title` metadata matches, from the
+        vector store, the BM25 corpus, and the in-memory caches — so a
+        removed document stops showing up in retrieval on the next
+        query, not just in the RagDocuments admin table."""
+
+        keep_indices = [
+            index
+            for index, metadata in enumerate(self.metadata_cache)
+            if metadata.get("title") != title
+        ]
+
+        removed_ids = [
+            self.chunk_ids[index]
+            for index in range(len(self.chunk_ids))
+            if index not in keep_indices
+        ]
+
+        if not removed_ids:
+            return  # nothing indexed under this title — no-op, not an error
+
+        self.vector_store.delete(ids=removed_ids)
+
+        self.documents_cache = [self.documents_cache[i] for i in keep_indices]
+        self.metadata_cache = [self.metadata_cache[i] for i in keep_indices]
+        self.chunk_ids = [self.chunk_ids[i] for i in keep_indices]
+
+        self._rebuild_metadata_index()
+        self._rebuild_bm25_index()
 
     def get_metadata_index(self):
         return {

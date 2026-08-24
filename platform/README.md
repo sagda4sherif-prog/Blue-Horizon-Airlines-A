@@ -54,9 +54,9 @@ so no CORS setup needed in dev.
 | Register/unregister MCP tools from the admin panel | **Real** — hits the live `tool_registry` |
 | Chat with the "operations" agent | **Real** — Anthropic + live MCP tools |
 | Chat with the "rag" (policy) agent | **Real** — uses `rag_pipeline.hybrid_search` |
-| Add/remove RAG documents | **Real CRUD**, but not yet reflected in retrieval until Person 2 adds `add_document`/`remove_document` to the pipeline (falls back gracefully — see `API_CONTRACT.md`) |
-| Tickets / HITL queue | **Real CRUD + UI**, but populated by seed data until `state_graph/` exists and calls `graph_bridge.py` (see `API_CONTRACT.md`) |
-| Chat with state-graph agents | **Not yet** — shown grayed out in the UI with an explicit reason, not silently hidden |
+| Add/remove RAG documents | **Real** — `rag_pipeline.add_document`/`remove_document` are implemented; changes reach `hybrid_search` on the next query |
+| Tickets / HITL queue | **Real** — populated by `state_graph/` runs via `graph_bridge.py`, not just seed data |
+| Chat with state-graph agents | **Real** — the "graph" agent starts real `flight_recovery`/`crew_reassignment`/`flight_compensation` runs and can check on ones already started. It does NOT resume a paused run from chat — a run that pauses for HITL only moves forward once an admin acts on it from `/admin/hitl`; the chat agent says so rather than pretending to move it forward. |
 
 ## Crash-and-resume demo (once state_graph/ exists)
 
