@@ -93,6 +93,7 @@ export type Ticket = {
   resolution_notes: string | null;
   created_at: string;
   resolved_at: string | null;
+  resolved_by: string | null;
 };
 
 export function getTickets(status?: string) {

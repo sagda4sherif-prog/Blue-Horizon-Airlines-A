@@ -1,5 +1,5 @@
 # Core MCP server / agent
-mcp
+mcp==1.29.1
 aiosqlite
 python-dotenv
 
@@ -30,6 +30,6 @@ fastapi
 uvicorn[standard]
 anthropic
 
-# state/ — LangGraph workflows and durable SQLite checkpointing
+# state/ ï¿½ LangGraph workflows and durable SQLite checkpointing
 langgraph==1.2.11
 langgraph-checkpoint-sqlite==3.1.1
