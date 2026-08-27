@@ -6,7 +6,7 @@ const nextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://localhost:8001/api/:path*",
+        destination: "https://blue-horizon-airlines-a-production.up.railway.app/api/:path*",
       },
     ];
   },
