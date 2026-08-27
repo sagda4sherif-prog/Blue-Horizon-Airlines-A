@@ -1,4 +1,4 @@
-"""
+﻿"""
 Blue Horizon Airlines - Chat Engine
 
 Agents:
@@ -37,6 +37,76 @@ from agent.mcp_tool_client import SERVER_SCRIPT_PATH
 load_dotenv()
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+FALLBACK_MODELS = [
+    model.strip()
+    for model in os.getenv("GEMINI_FALLBACK_MODELS", "").split(",")
+    if model.strip()
+]
+
+GEMINI_MODELS = list(dict.fromkeys([MODEL] + FALLBACK_MODELS))
+
+
+def _is_retryable_gemini_error(exc: Exception) -> bool:
+    """Return True when Gemini failure should trigger model fallback."""
+
+    error_text = str(exc).lower()
+
+    retryable_patterns = (
+        "429",
+        "resource_exhausted",
+        "resource exhausted",
+        "quota",
+        "rate limit",
+        "too many requests",
+        "unavailable",
+        "503",
+        "service unavailable",
+        "capacity",
+        "overloaded",
+    )
+
+    return any(
+        pattern in error_text
+        for pattern in retryable_patterns
+    )
+
+
+def _generate_content_with_fallback(
+    client: genai.Client,
+    *,
+    contents: Any,
+    config: types.GenerateContentConfig,
+) -> Any:
+    """Try the primary Gemini model, then configured fallbacks."""
+
+    last_error: Exception | None = None
+
+    for model_name in GEMINI_MODELS:
+        try:
+            print(f"[Gemini] Trying model: {model_name}")
+
+            return client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=config,
+            )
+
+        except Exception as exc:
+            last_error = exc
+
+            if not _is_retryable_gemini_error(exc):
+                raise
+
+            print(
+                f"[Gemini] Model '{model_name}' unavailable/exhausted. "
+                "Trying next model..."
+            )
+
+    if last_error is not None:
+        raise last_error
+
+    raise RuntimeError("No Gemini models are configured.")
+
 
 
 def _gemini_client() -> genai.Client:
@@ -297,8 +367,8 @@ async def _run_operations_turn(history: list[dict]) -> str:
 
             for _ in range(6):
 
-                response = client.models.generate_content(
-                    model=MODEL,
+                response = _generate_content_with_fallback(
+                    client,
                     contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=system_instruction,
@@ -462,8 +532,8 @@ USER QUESTION:
 {question}
 """
 
-    response = client.models.generate_content(
-        model=MODEL,
+    response = _generate_content_with_fallback(
+        client,
         contents=prompt,
         config=types.GenerateContentConfig(
             temperature=0,
@@ -727,10 +797,10 @@ def run_graph_turn(history: list[dict]) -> str:
 
     for _ in range(6):
 
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
+        response = _generate_content_with_fallback(
+                    client,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 tools=gemini_tools,
                 temperature=0,
@@ -820,3 +890,8 @@ def run_turn(
     raise ValueError(
         f"Unknown agent: {agent_id}"
     )
+
+
+
+
+
