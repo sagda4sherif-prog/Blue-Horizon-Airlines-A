@@ -27,6 +27,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [storageLoaded, setStorageLoaded] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -285,6 +286,7 @@ export default function ChatPage() {
     }
 
     setActiveAgent(agentId);
+    setMobileSidebarOpen(false);
     setError(null);
     setInput("");
 
@@ -614,11 +616,71 @@ export default function ChatPage() {
       {/* Chat Area                                         */}
       {/* ================================================= */}
 
+      <div
+        className={"mobile-sidebar-overlay" + (mobileSidebarOpen ? " open" : "")}
+        onClick={() => setMobileSidebarOpen(false)}
+      />
+
+      <aside className={"mobile-agent-drawer" + (mobileSidebarOpen ? " open" : "")}>
+        <div className="mobile-drawer-header">
+          <strong>Agents</strong>
+          <button
+            className="mobile-drawer-close"
+            onClick={() => setMobileSidebarOpen(false)}
+          >
+            ×
+          </button>
+        </div>
+
+        {agents.map((agent) => (
+          <div
+            key={agent.id}
+            className={`mobile-agent-item${agent.id === activeAgent ? " active" : ""}${!agent.available ? " disabled" : ""}`}
+            onClick={() => {
+              if (agent.available) switchAgent(agent.id);
+            }}
+          >
+            <div className="mobile-agent-name">{agent.name}</div>
+            <div className="muted">{agent.description}</div>
+          </div>
+        ))}
+
+        <div className="mobile-drawer-divider" />
+        <div className="mobile-drawer-section-title">Past Chats</div>
+        <div className="mobile-drawer-agent">{currentAgentName}</div>
+
+        {agentConversations.length === 0 ? (
+          <div className="past-empty">No previous conversations</div>
+        ) : (
+          agentConversations.map((conversation) => (
+            <button
+              key={conversation.id}
+              className={"past-chat-item" + (conversation.id === activeChatId ? " selected" : "")}
+              onClick={() => {
+                openChat(conversation);
+                setMobileSidebarOpen(false);
+              }}
+            >
+              <div className="past-chat-title">{conversation.title}</div>
+              <div className="past-chat-meta">{formatDate(conversation.updatedAt)}</div>
+            </button>
+          ))
+        )}
+      </aside>
+
       <div className="chat-area">
 
         {/* Header */}
 
         <div className="chat-header">
+
+          <button
+            className="mobile-agents-button"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label="Open agents"
+          >
+            ☰ Agents
+          </button>
 
           <div>
             <div className="chat-header-title">
@@ -720,3 +782,9 @@ export default function ChatPage() {
     </div>
   );
 }
+
+
+
+
+
+
