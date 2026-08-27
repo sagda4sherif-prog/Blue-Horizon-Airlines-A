@@ -632,6 +632,18 @@ export default function ChatPage() {
           </button>
         </div>
 
+        <div className="mobile-drawer-actions">
+          <button
+            className="new-chat-button mobile-new-chat-button"
+            onClick={() => {
+              createNewChat();
+              setMobileSidebarOpen(false);
+            }}
+          >
+            + New Chat
+          </button>
+        </div>
+
         {agents.map((agent) => (
           <div
             key={agent.id}
@@ -782,6 +794,11 @@ export default function ChatPage() {
     </div>
   );
 }
+
+
+
+
+
 
 
 

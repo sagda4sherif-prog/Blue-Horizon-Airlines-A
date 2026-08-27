@@ -1504,3 +1504,12 @@ pre.state {
     align-items: flex-start;
   }
 }
+
+/* Mobile drawer - New Chat */
+.mobile-drawer-actions {
+  padding: 12px 16px;
+}
+
+.mobile-new-chat-button {
+  width: 100%;
+}
