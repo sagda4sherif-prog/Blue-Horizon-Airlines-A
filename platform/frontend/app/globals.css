@@ -1331,3 +1331,93 @@ pre.state {
     overflow-y: auto;
   }
 }
+/* =========================================================
+   FINAL ADMIN MOBILE RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 800px) {
+
+  .shell {
+    display: block;
+    width: 100%;
+    min-height: calc(100vh - 52px);
+    overflow-x: hidden;
+  }
+
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 0;
+  }
+
+  .sidebar a {
+    padding: 10px 16px;
+  }
+
+  .main {
+    width: 100%;
+    min-width: 0;
+    padding: 16px 12px;
+    overflow-x: hidden;
+  }
+
+  .card {
+    width: 100%;
+    min-width: 0;
+    padding: 14px;
+    overflow-x: auto;
+  }
+
+  table {
+    min-width: 600px;
+  }
+
+  .main table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .row {
+    flex-wrap: wrap;
+  }
+
+  input,
+  textarea {
+    max-width: 100%;
+  }
+
+  pre.state {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 480px) {
+
+  .main {
+    padding: 12px 10px;
+  }
+
+  .card {
+    padding: 12px;
+    border-radius: 8px;
+  }
+
+  .sidebar a {
+    padding: 9px 12px;
+    font-size: 13px;
+  }
+
+  th,
+  td {
+    padding: 8px 6px;
+    font-size: 12px;
+  }
+
+  button {
+    font-size: 12px;
+    padding: 7px 10px;
+  }
+}
