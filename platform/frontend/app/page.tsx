@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Agent, ChatMessage, getAgents, sendChat } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
 
 const CHAT_STORAGE_KEY = "blue-horizon-chat-history-v3";
 const ACTIVE_AGENT_STORAGE_KEY = "blue-horizon-active-agent";
@@ -736,7 +737,13 @@ export default function ChatPage() {
               key={`${activeChatId}-${index}`}
               className={`msg ${message.role}`}
             >
-              {message.content}
+              {message.role === "assistant" ? (
+  <ReactMarkdown>
+    {message.content}
+  </ReactMarkdown>
+) : (
+  message.content
+)}
             </div>
           ))}
 
@@ -794,6 +801,7 @@ export default function ChatPage() {
     </div>
   );
 }
+
 
 
 

@@ -1513,3 +1513,140 @@ pre.state {
 .mobile-new-chat-button {
   width: 100%;
 }
+
+/* =========================================================
+   AGENT MESSAGE - OPERATIONAL BRIEFING STYLE
+   ========================================================= */
+
+.msg.assistant {
+  max-width: min(720px, 78%);
+  padding: 16px 20px;
+  border-radius: 14px;
+  border-bottom-left-radius: 5px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  line-height: 1.65;
+  white-space: normal;
+}
+
+/* Markdown headings */
+.msg.assistant h1,
+.msg.assistant h2,
+.msg.assistant h3 {
+  margin: 0 0 10px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.msg.assistant h1 {
+  font-size: 18px;
+}
+
+.msg.assistant h2 {
+  font-size: 16px;
+}
+
+.msg.assistant h3 {
+  font-size: 15px;
+}
+
+/* Paragraphs */
+.msg.assistant p {
+  margin: 0 0 10px;
+}
+
+.msg.assistant p:last-child {
+  margin-bottom: 0;
+}
+
+/* Bold information */
+.msg.assistant strong {
+  font-weight: 700;
+}
+
+/* Lists */
+.msg.assistant ul,
+.msg.assistant ol {
+  margin: 8px 0 12px;
+  padding-left: 22px;
+}
+
+.msg.assistant li {
+  margin: 5px 0;
+  padding-left: 3px;
+}
+
+/* Nested lists */
+.msg.assistant li > ul,
+.msg.assistant li > ol {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+/* Horizontal separators */
+.msg.assistant hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+
+/* Inline code */
+.msg.assistant code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  font-size: 0.9em;
+  background: #f3f4f6;
+}
+
+/* Code blocks */
+.msg.assistant pre {
+  margin: 10px 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: #f6f7f9;
+}
+
+.msg.assistant pre code {
+  padding: 0;
+  background: transparent;
+}
+
+/* Tables */
+.msg.assistant table {
+  width: 100%;
+  margin: 12px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.msg.assistant th,
+.msg.assistant td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.msg.assistant th {
+  font-weight: 700;
+  background: #f6f7f9;
+}
+
+/* Links */
+.msg.assistant a {
+  text-decoration: underline;
+}
+
+/* Mobile */
+@media (max-width: 800px) {
+  .msg.assistant {
+    max-width: 92%;
+    padding: 13px 15px;
+  }
+
+  .msg.assistant table {
+    display: block;
+    overflow-x: auto;
+  }
+}
